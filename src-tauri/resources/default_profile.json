@@ -1,0 +1,5144 @@
+{
+  "dataScope": "KeyboardProfile",
+  "type": "keyboard",
+  "version": 3,
+  "vendorId": 16868,
+  "productId": 8470,
+  "productName": "Ace68-II",
+  "identity": {
+    "vendorId": 16868,
+    "productId": 8470,
+    "productName": "Ace68-II"
+  },
+  "exportedAt": 1775544479732,
+  "data": {
+    "userKeys": [
+      {
+        "type": "diff-keys",
+        "data": {}
+      },
+      {
+        "type": "diff-keys",
+        "data": {}
+      },
+      {
+        "type": "diff-keys",
+        "data": {}
+      },
+      {
+        "type": "diff-keys",
+        "data": {}
+      }
+    ],
+    "advancedKeys": {
+      "dks": [
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        },
+        {
+          "point": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "action0": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action1": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action2": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "action3": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "point0": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point1": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point2": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          },
+          "point3": {
+            "action0": 0,
+            "action1": 0,
+            "action2": 0,
+            "action3": 0
+          }
+        }
+      ],
+      "mt": [
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        },
+        {
+          "clickKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          },
+          "downKey": {
+            "type": 0,
+            "code1": 0,
+            "code2": 0
+          }
+        }
+      ],
+      "tgl": [
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        },
+        {
+          "type": 0,
+          "code1": 0,
+          "code2": 0
+        }
+      ]
+    },
+    "performance": {
+      "macMode": 2,
+      "reporteRate": 0,
+      "tickRate": 0,
+      "deadZone": 1,
+      "lockWin": 0,
+      "lockAltTap": 0,
+      "lockAltF4": 0,
+      "tachyonMode": 0,
+      "bottomrapidtriggerMode": 1,
+      "travelCheck": 1,
+      "debugMode": 0,
+      "debounceLevel": 7,
+      "rtsmart": 0,
+      "rf_battery": 0,
+      "isCharging": 0,
+      "roller_type": 0,
+      "work_mode": 0,
+      "sleepTime": 0,
+      "sleepMode": 0,
+      "rf_bt_ch": 0,
+      "report_rate_2_4G": 0
+    },
+    "lightValueStore": {
+      "light": [
+        {
+          "hexColor": "#00ff00",
+          "speed": 0,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 3
+        },
+        {
+          "hexColor": "#ff8000",
+          "speed": 0,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 4
+        },
+        {
+          "hexColor": "#b900ff",
+          "speed": 0,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 9
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 8
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 7
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 6
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 0
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 255
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 17
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 16
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 15
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 14
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 22
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 21
+        },
+        {
+          "hexColor": "#0000ff",
+          "speed": 1,
+          "brightness": 100,
+          "direct": 0,
+          "customColorDisabled": 0,
+          "effect": 20
+        }
+      ],
+      "sideLight": [],
+      "sideLight2": []
+    },
+    "light": {
+      "colors": [
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000",
+        "#000000"
+      ],
+      "config": {
+        "type": 1,
+        "effect": 3,
+        "brightness": 100,
+        "speed": 0,
+        "direct": 0,
+        "customColorDisabled": 0,
+        "colorIndex": 1,
+        "hexColor": "#00ff00",
+        "side_effect": 0,
+        "side_brightness": 80,
+        "side_speed": 2,
+        "sideCustomColorDisabled": 1,
+        "side_hexColor": "#ff0000",
+        "calibrationRgb": {
+          "r": 0,
+          "g": 0,
+          "b": 0
+        }
+      }
+    },
+    "triggerTravel": {
+      "travelKeys": [
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 1,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 201,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        },
+        {
+          "switchType": 0,
+          "keyMode": 1,
+          "isolated": 0,
+          "priority": 0,
+          "key_max_length": 4,
+          "keyActuation": 150,
+          "pressPrecision": 0,
+          "releasePrecision": 0,
+          "rtPress": 30,
+          "rtRelease": 30,
+          "pressDeadzone": 15,
+          "releaseDeadzone": 15,
+          "deadzoneStatus": true
+        }
+      ],
+      "statusKeys": [
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        },
+        {
+          "isolated": 0,
+          "deadzoneStatus": true
+        }
+      ]
+    },
+    "customParam": {
+      "rtPressPrecisionMode": 0,
+      "rtReleasePrecisionMode": 0,
+      "rtSmartCacheValue": 1,
+      "cbKeyIndexList": [
+        [],
+        [],
+        [],
+        []
+      ]
+    },
+    "selectedLightEffect": [
+      "still",
+      "Static"
+    ],
+    "name": "Default Onboard",
+    "extra": {
+      "fw_ver": "121",
+      "rffw_ver": "0",
+      "identity": {
+        "vendorId": 16868,
+        "productId": 8470,
+        "productName": "Ace68-II"
+      }
+    }
+  },
+  "macros": [
+    {
+      "macroIndex": 0,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 1,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 2,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 3,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 4,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 5,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 6,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 7,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 8,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 9,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 10,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 11,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 12,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 13,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 14,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    },
+    {
+      "macroIndex": 15,
+      "macroActions": [],
+      "name": "",
+      "type": 0,
+      "defaultDelay": 50,
+      "enableDefaultDelay": true
+    }
+  ]
+}

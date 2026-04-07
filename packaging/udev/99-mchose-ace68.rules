@@ -1,0 +1,2 @@
+# MCHOSE Ace68-II — allow non-root access to hidraw (install to /etc/udev/rules.d/)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="41e4", MODE="0666"
