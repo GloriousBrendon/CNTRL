@@ -1,0 +1,18 @@
+[package]
+name = "cntrl-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CNTRL unified CLI: daemon, panel, popup"
+
+[[bin]]
+name = "cntrl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+cntrl-core = { path = "../cntrl-core" }
+cntrl-iced = { path = "../cntrl-iced" }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -1,0 +1,10 @@
+[package]
+name = "cntrl-iced"
+version = "0.1.0"
+edition = "2021"
+description = "CNTRL ICED frontend (lighting parity)"
+
+[dependencies]
+cntrl-core = { path = "../cntrl-core" }
+iced = { version = "0.14", features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
