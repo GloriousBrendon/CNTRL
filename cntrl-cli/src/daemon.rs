@@ -1,8 +1,6 @@
 //! Foreground Unix socket server (`cntrl daemon`).
 
-use cntrl_core::hid::backend as hid;
 use cntrl_core::ipc::{self, Request, Response};
-use cntrl_core::persistence::persist_profile_slot;
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -36,6 +34,7 @@ fn run_unix() -> Result<(), String> {
     }
     let listener = UnixListener::bind(&path).map_err(|e| e.to_string())?;
     eprintln!("cntrl daemon: listening on {}", path.display());
+    std::thread::spawn(theme_watcher);
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
@@ -51,6 +50,44 @@ fn run_unix() -> Result<(), String> {
     Ok(())
 }
 
+/// Background watcher: when theme sync is enabled in settings, re-apply the theme
+/// accent to the lighting whenever `~/.config/themes/colors.conf` changes.
+/// Settings are reloaded each tick so the UI toggle takes effect without a restart.
+fn theme_watcher() {
+    use cntrl_core::{ipc::ApplyOptions, settings, theme, theme_sync};
+    use std::time::{Duration, SystemTime};
+
+    let mut last_mtime: Option<SystemTime> = std::fs::metadata(theme::theme_file_path())
+        .ok()
+        .and_then(|m| m.modified().ok());
+
+    loop {
+        std::thread::sleep(Duration::from_millis(1000));
+        let cfg = settings::load();
+        if !cfg.theme_sync_enabled {
+            continue;
+        }
+        let current = std::fs::metadata(theme::theme_file_path())
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if current == last_mtime {
+            continue;
+        }
+        last_mtime = current;
+        let slot = cfg.theme_sync_slot.min(3);
+        let options = ApplyOptions {
+            keyboard: cfg.theme_sync_keyboard,
+            pc_rgb: cfg.theme_sync_pc,
+        };
+        match theme_sync::apply_theme(slot, options) {
+            Ok((r, g, b)) => eprintln!(
+                "cntrl daemon: theme sync applied #{r:02x}{g:02x}{b:02x} to slot {slot}"
+            ),
+            Err(e) => eprintln!("cntrl daemon: theme sync failed: {e}"),
+        }
+    }
+}
+
 #[cfg(unix)]
 fn handle_client(mut stream: UnixStream) -> Result<(), String> {
     let mut reader = BufReader::new(&stream);
@@ -64,12 +101,15 @@ fn handle_client(mut stream: UnixStream) -> Result<(), String> {
     let resp = match req {
         Request::Ping => Response::ok_msg("pong"),
         Request::ApplyProfile { document, slot } => {
-            match persist_profile_slot(slot, &document) {
-                Err(e) => Response::err_msg(format!("persist: {e}")),
-                Ok(()) => match hid::write_profile_to_device(&document) {
-                    Ok(()) => Response::ok_msg("lighting applied"),
-                    Err(e) => Response::err_msg(format!("HID: {e}")),
-                },
+            match ipc::apply_local(&document, slot) {
+                Ok(()) => Response::ok_msg("lighting applied (keyboard + pc-rgb fanout)"),
+                Err(e) => {
+                    if e.to_lowercase().contains("hid") {
+                        Response::err_msg(format!("HID: {e}"))
+                    } else {
+                        Response::err_msg(e)
+                    }
+                }
             }
         }
     };

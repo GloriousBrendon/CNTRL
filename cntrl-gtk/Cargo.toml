@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 cntrl-core = { path = "../cntrl-core" }
+cntrl-iced = { path = "../cntrl-iced" }
 gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_5"] }
 relm4 = { version = "0.9", features = ["libadwaita"] }
