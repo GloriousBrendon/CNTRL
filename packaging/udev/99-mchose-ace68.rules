@@ -1,2 +1,14 @@
-# MCHOSE Ace68-II — allow non-root access to hidraw (install to /etc/udev/rules.d/)
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="41e4", MODE="0666"
+# CNTRL — non-root hidraw access for RGB control (install to /etc/udev/rules.d/).
+#
+# After installing:  sudo udevadm control --reload-rules && sudo udevadm trigger
+# then replug the device (or reboot) so the mode applies to existing nodes.
+#
+# Uses GROUP="users" + MODE="0660": the desktop user is in the `users` group, so
+# this grants access reliably. (Plain TAG+="uaccess" does NOT work from a 99- rule
+# because systemd's uaccess pass at 73-seat-late.rules runs earlier.)
+
+# MCHOSE Ace68-II keyboard (lighting lives on hidraw interface 1).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="41e4", ATTRS{idProduct}=="2116", GROUP="users", MODE="0660"
+
+# ITE Tech RGB LED controller (motherboard / case / ARGB fans — PC-RGB backend).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="048d", ATTRS{idProduct}=="5702", GROUP="users", MODE="0660"

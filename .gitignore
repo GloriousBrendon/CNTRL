@@ -9,3 +9,6 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 target
+
+# OpenRGB strace/RE capture logs (native build does not need these)
+captures/

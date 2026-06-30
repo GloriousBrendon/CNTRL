@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=CNTRL
+Comment=MCHOSE Ace68-II keyboard and PC RGB control
+Exec=cntrl panel
+Icon=input-keyboard
+Terminal=false
+Type=Application
+Categories=Utility;Settings;HardwareSettings;
+Keywords=keyboard;rgb;lighting;mchose;ace68;
