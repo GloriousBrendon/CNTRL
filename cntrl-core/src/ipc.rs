@@ -93,11 +93,21 @@ pub fn try_apply_via_daemon(
     Ok(None)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ApplyOptions {
+    pub keyboard: bool,
+    pub pc_rgb: bool,
+}
+
+impl ApplyOptions {
+    pub const ALL: Self = Self {
+        keyboard: true,
+        pc_rgb: true,
+    };
+}
+
 /// Persist + HID locally, or via daemon when reachable.
 pub fn apply_local_or_daemon(doc: &ProfileDocument, slot: u8) -> Result<(), String> {
-    use crate::hid::backend as hid;
-    use crate::persistence::persist_profile_slot;
-
     #[cfg(unix)]
     match try_apply_via_daemon(doc, slot) {
         Ok(Some(resp)) => {
@@ -115,8 +125,108 @@ pub fn apply_local_or_daemon(doc: &ProfileDocument, slot: u8) -> Result<(), Stri
     #[cfg(not(unix))]
     let _ = (doc, slot);
 
+    apply_local(doc, slot)
+}
+
+/// Persist + keyboard HID + optional PC RGB backends locally (no daemon IPC).
+pub fn apply_local(doc: &ProfileDocument, slot: u8) -> Result<(), String> {
+    apply_local_with_options(doc, slot, ApplyOptions::ALL)
+}
+
+/// Persist locally, then apply only the selected device classes.
+pub fn apply_local_with_options(
+    doc: &ProfileDocument,
+    slot: u8,
+    options: ApplyOptions,
+) -> Result<(), String> {
+    use crate::persistence::persist_profile_slot;
     persist_profile_slot(slot, doc)?;
-    hid::write_profile_to_device(doc)
+    push_to_devices(doc, options)
+}
+
+/// Push `doc` to the selected devices **without** persisting a profile slot.
+/// Used by the boot-restore path so re-applying saved per-device state doesn't
+/// clobber the active profile.
+pub fn push_to_devices(doc: &ProfileDocument, options: ApplyOptions) -> Result<(), String> {
+    use crate::hid::backend as hid;
+    use crate::rgb_backends::{ApplyResult, BackendRegistry};
+
+    if options.pc_rgb {
+        if let Err(e) = crate::rgb_probe::ensure_runtime_probe(false) {
+            eprintln!("cntrl: rgb probe init failed, continuing with existing env: {e}");
+        }
+    }
+    let hid_result = if options.keyboard {
+        let doc_for_hid = doc.clone();
+        Some(match std::thread::spawn(move || hid::write_profile_to_device(&doc_for_hid)).join() {
+            Ok(r) => r,
+            Err(_) => Err("keyboard apply thread panicked".to_string()),
+        })
+    } else {
+        None
+    };
+    let summary = if options.pc_rgb {
+        let doc_for_rgb = doc.clone();
+        Some(match std::thread::spawn(move || {
+            let registry = BackendRegistry::from_env();
+            registry.run(&doc_for_rgb)
+        })
+        .join()
+        {
+            Ok(s) => s,
+            Err(_) => {
+                return Err("pc-rgb apply thread panicked".to_string());
+            }
+        })
+    } else {
+        None
+    };
+
+    let verbose = std::env::var("CNTRL_PC_RGB_VERBOSE")
+        .map(|s| {
+            let t = s.trim().to_ascii_lowercase();
+            t == "1" || t == "true" || t == "on"
+        })
+        .unwrap_or(false);
+    let mut hard_errors: Vec<String> = Vec::new();
+    if let Some(summary) = summary {
+        if verbose {
+            eprintln!("cntrl: {}", summary.short_message());
+            for report in &summary.reports {
+                eprintln!(
+                    "cntrl: backend={} result={:?} reason={}",
+                    report.backend_id, report.result, report.reason
+                );
+            }
+        } else if summary.has_partial_failure() {
+            eprintln!("cntrl: {}", summary.short_message());
+            for report in &summary.reports {
+                if report.result != ApplyResult::Ok {
+                    eprintln!(
+                        "cntrl: backend={} result={:?} reason={}",
+                        report.backend_id, report.result, report.reason
+                    );
+                    if report.result == ApplyResult::Error {
+                        hard_errors.push(format!("{}: {}", report.backend_id, report.reason));
+                    }
+                }
+            }
+        }
+        for report in &summary.reports {
+            if report.result == ApplyResult::Error {
+                hard_errors.push(format!("{}: {}", report.backend_id, report.reason));
+            }
+        }
+    }
+    if !hard_errors.is_empty() {
+        return Err(format!("pc-rgb backend error(s): {}", hard_errors.join(" | ")));
+    }
+    if let Some(hid_result) = hid_result {
+        if let Err(e) = hid_result {
+            return Err(format!("HID: {e}"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]

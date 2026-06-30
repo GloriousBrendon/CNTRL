@@ -28,11 +28,19 @@ impl Default for ThemeColors {
     }
 }
 
-/// Resolved path: `dirs::config_dir()/themes/colors.conf` (typically `~/.config/themes/colors.conf`).
+/// Resolved path to the active rice theme: `~/.config/themes/active/colors.conf`
+/// (the file the Hyprland rice + `generate-theme.sh` write, in `$key = rgba(..)` form).
 pub fn theme_file_path() -> PathBuf {
+    if let Ok(p) = std::env::var("CNTRL_THEME_FILE") {
+        let t = p.trim();
+        if !t.is_empty() {
+            return PathBuf::from(t);
+        }
+    }
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("themes")
+        .join("active")
         .join("colors.conf")
 }
 

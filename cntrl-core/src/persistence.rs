@@ -53,5 +53,10 @@ pub fn load_profile_slot(slot: u8) -> Result<ProfileDocument, String> {
 pub fn persist_profile_slot(slot: u8, doc: &ProfileDocument) -> Result<(), String> {
     std::fs::create_dir_all(profiles_dir()?).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
-    std::fs::write(slot_path(slot)?, s).map_err(|e| e.to_string())
+    let final_path = slot_path(slot)?;
+    // Atomic write: a unique temp file + rename, so concurrent applies can't
+    // interleave and corrupt the slot (which previously left a trailing `}`).
+    let tmp = final_path.with_file_name(format!("slot_{slot}.json.tmp.{}", std::process::id()));
+    std::fs::write(&tmp, s).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &final_path).map_err(|e| e.to_string())
 }

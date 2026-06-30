@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 const VID: u16 = 0x41e4;
 const PID: u16 = 0x2116;
-const PIPELINE_TIMEOUT_MS: u128 = 4000;
+const PIPELINE_TIMEOUT_MS: u128 = 8000;
 
 const GET_DIY_LIGHT: [u8; 64] = {
     let mut b = [0u8; 64];
@@ -177,6 +177,10 @@ fn build_apply_a(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [
     if let Some(eid) = effect_id {
         a[9] = 0x00;
         a[16] = eid;
+    } else {
+        // Solid: force the static lightMode (web app uses 0x03) so the keyboard
+        // shows a solid colour instead of recolouring the running effect.
+        a[16] = 0x03;
     }
     a[22] = rgb.0;
     a[23] = rgb.1;
@@ -192,6 +196,9 @@ fn build_apply_b(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [
     b[8..8 + tail.len()].copy_from_slice(tail);
     if let Some(eid) = effect_id {
         b[8] = eid;
+    } else {
+        // Solid: static lightMode (matches the web app's solid apply_b).
+        b[8] = 0x03;
     }
     b[14] = rgb.0;
     b[15] = rgb.1;
@@ -372,6 +379,39 @@ fn initial_drain(file: &mut File) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The MCHOSE web-app "enter PC/DIY control mode" handshake, captured from real
+/// USB traffic (95 × 64-byte interrupt-OUT frames: `55 a9` mode switch + `55 08`/
+/// `55 a0` buffer init + reads). Without it, a keyboard left in an onboard effect
+/// (e.g. after a reboot) ignores our color writes. Run in its own HID session
+/// before the color, mirroring the web app. Skip via `CNTRL_KB_NO_HANDSHAKE=1`.
+static DIY_HANDSHAKE: &[u8] = include_bytes!("../../resources/keyboard_diy_handshake.bin");
+
+fn prime_diy_mode(path: &std::path::Path) -> std::io::Result<()> {
+    if std::env::var("CNTRL_KB_NO_HANDSHAKE")
+        .map(|v| {
+            let t = v.trim();
+            t == "1" || t.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+    let mut file = File::options().read(true).write(true).open(path)?;
+    for _ in 0..4 {
+        let _ = drain_one(&mut file, 40);
+    }
+    for chunk in DIY_HANDSHAKE.chunks(64) {
+        let mut frame = [0u8; 64];
+        frame[..chunk.len()].copy_from_slice(chunk);
+        file.write_all(&frame)?;
+        while drain_one(&mut file, 6)?.is_some() {}
+        thread::sleep(Duration::from_millis(2));
+    }
+    thread::sleep(Duration::from_millis(120));
+    while drain_one(&mut file, 20)?.is_some() {}
+    Ok(())
+}
+
 /// Full pipeline: getDiyLight (unless `direct`) → getPerformance ×2 → WRITE_LIGHT_V2 → ZONE → APPLY_A/B.
 pub fn run_pipeline(
     rgb: (u8, u8, u8),
@@ -398,6 +438,13 @@ pub fn run_pipeline(
         direct,
         effect_id
     );
+    // Enter DIY/PC-control mode in its own HID session first (the keyboard reverts
+    // to onboard effects on reboot and otherwise ignores our writes).
+    eprintln!("mchose_lighting: stage=prime_diy_mode path={}", path.display());
+    prime_diy_mode(&path).map_err(|e| format!("prime_diy_mode {}: {e}", path.display()))?;
+    stage_deadline("prime_diy_mode", started, &path)?;
+    thread::sleep(Duration::from_millis(150));
+
     let mut file = File::options()
         .read(true)
         .write(true)
