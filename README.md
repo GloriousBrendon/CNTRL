@@ -39,6 +39,8 @@ The **Canvas** tab maps every device onto one virtual effect surface: each devic
 - **Demo effects:** Rainbow Wave, Plasma, Ripple, Comet, Aurora (`cntrl canvas --list`).
 - **Live streaming:** the keyboard gets true **per-key** frames (native CZ protocol, ~7 ms/frame — up to 143 fps); ITE D_LED1/D_LED2 strips get per-LED frames; GPU gets a sampled zone color (never saved to its flash); Corsair RAM gets per-LED SMBus writes (rate-limited). When a stream stops, every device returns to its saved lighting.
 - **Arrangement:** drag devices on the Canvas tab; selection supports rotate (90°) and scale. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
+- **Per-fan ARGB:** each header's daisy chain can be split into individual fans (**ARGB CHAINS** presets) — every fan becomes its own draggable ring, so chains that light "out of order" are fixed by placing each fan where it physically sits (or toggling **Reverse** for backwards wiring; the accent dot marks the chain's first LED).
+- **Per-element trim:** each placed device has its own brightness, hue shift, and saturation sliders on top of the global effect settings.
 - **Headless:** `cntrl canvas --effect plasma --fps 20` streams with the saved layout; `--seconds N` for a timed run.
 
 ## Theme switcher sync
