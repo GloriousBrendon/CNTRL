@@ -216,24 +216,31 @@ fn send_openrgb_static_effect(dev: &hidapi::HidDevice, r: u8, g: u8, b: u8) -> R
     Ok(())
 }
 
-fn build_openrgb_strip_packet(header: u8, offset_bytes: u16, led_count: u8, r: u8, g: u8, b: u8) -> [u8; 64] {
+/// Max LEDs per 64-byte strip packet (5-byte header + 19×3 color bytes = 62).
+const STRIP_LEDS_PER_PACKET: usize = 19;
+
+/// Per-LED strip data packet. `colors` are already in wire order.
+fn build_openrgb_strip_packet_multi(header: u8, offset_bytes: u16, colors: &[[u8; 3]]) -> [u8; 64] {
+    let count = colors.len().min(STRIP_LEDS_PER_PACKET);
     let mut p = [0u8; 64];
     p[0] = 0xCC;
     p[1] = header;
     p[2] = (offset_bytes & 0x00FF) as u8;
     p[3] = (offset_bytes >> 8) as u8;
-    p[4] = led_count.saturating_mul(3);
+    p[4] = (count * 3) as u8;
     let mut idx = 5usize;
-    for _ in 0..led_count {
-        if idx + 2 >= p.len() {
-            break;
-        }
-        p[idx] = r;
-        p[idx + 1] = g;
-        p[idx + 2] = b;
+    for c in colors.iter().take(count) {
+        p[idx] = c[0];
+        p[idx + 1] = c[1];
+        p[idx + 2] = c[2];
         idx += 3;
     }
     p
+}
+
+fn build_openrgb_strip_packet(header: u8, offset_bytes: u16, led_count: u8, r: u8, g: u8, b: u8) -> [u8; 64] {
+    let colors = vec![[r, g, b]; led_count as usize];
+    build_openrgb_strip_packet_multi(header, offset_bytes, &colors)
 }
 
 fn parse_strip_color_order() -> [usize; 3] {
@@ -379,5 +386,77 @@ pub fn apply_profile(doc: &ProfileDocument) -> Result<String, String> {
         "ite_rgb applied via {} (iface={})",
         selected.path, selected.interface_number
     ))
+}
+
+// ── canvas streaming (per-LED direct mode) ───────────────────────────
+
+/// Persistent direct-mode session for canvas streaming: device stays open,
+/// bring-up runs once, then `write_strips` pushes true per-LED colors on the
+/// D_LED1/D_LED2 ARGB headers every frame.
+pub struct IteDirect {
+    dev: hidapi::HidDevice,
+    order: [usize; 3],
+    path: String,
+}
+
+impl IteDirect {
+    pub fn open() -> Result<Self, String> {
+        let preferred_path = std::env::var("CNTRL_ITE_PATH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let candidates = discover_candidates()?;
+        let selected = if let Some(p) = preferred_path.as_deref() {
+            candidates
+                .iter()
+                .find(|c| c.path == p)
+                .ok_or_else(|| format!("CNTRL_ITE_PATH={p} not found"))?
+        } else {
+            candidates
+                .first()
+                .ok_or_else(|| "no ITE HID candidates found (VID 048d PID 5702)".to_string())?
+        };
+
+        let api = hidapi::HidApi::new().map_err(|e| e.to_string())?;
+        let info = api
+            .device_list()
+            .find(|d| d.path().to_string_lossy() == selected.path)
+            .ok_or_else(|| format!("selected ITE path disappeared: {}", selected.path))?;
+        let dev = info.open_device(&api).map_err(|e| e.to_string())?;
+        run_openrgb_prelude(&dev)?;
+        Ok(Self {
+            dev,
+            order: parse_strip_color_order(),
+            path: selected.path.clone(),
+        })
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Push one frame of per-LED colors (RGB, canvas order) to both ARGB
+    /// strip headers, then latch with the 0x28 apply.
+    pub fn write_strips(&self, dled1: &[[u8; 3]], dled2: &[[u8; 3]]) -> Result<(), String> {
+        for (header, colors) in [(0x58u8, dled1), (0x59u8, dled2)] {
+            if colors.is_empty() {
+                continue;
+            }
+            let wire: Vec<[u8; 3]> = colors
+                .iter()
+                .map(|c| [c[self.order[0]], c[self.order[1]], c[self.order[2]]])
+                .collect();
+            for (i, chunk) in wire.chunks(STRIP_LEDS_PER_PACKET).enumerate() {
+                let offset = (i * STRIP_LEDS_PER_PACKET * 3) as u16;
+                let p = build_openrgb_strip_packet_multi(header, offset, chunk);
+                write_ite_packet(&self.dev, &p)?;
+            }
+        }
+        let mut apply = [0u8; 64];
+        apply[0] = 0xCC;
+        apply[1] = 0x28;
+        apply[2] = 0xFF;
+        write_ite_packet(&self.dev, &apply)
+    }
 }
 

@@ -1,6 +1,9 @@
 //! CNTRL core: profile model, persistence, HID entry points, and lighting protocol.
 //! No UI dependencies.
 
+pub mod canvas;
+pub mod canvas_effects;
+pub mod canvas_stream;
 pub mod color;
 pub mod corsair_ram;
 pub mod device_state;

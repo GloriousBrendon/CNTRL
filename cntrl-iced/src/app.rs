@@ -1,5 +1,9 @@
-//! ICED shell: full desktop panel with sidebar + Lighting / Devices / Sync pages.
+//! ICED shell: full desktop panel with sidebar + Lighting / Canvas / Devices / Sync pages.
 
+use crate::canvas_tab;
+use cntrl_core::canvas::{self as core_canvas, CanvasLayout};
+use cntrl_core::canvas_effects::EffectKind;
+use cntrl_core::canvas_stream::StreamHandle;
 use cntrl_core::color::{hex_to_rgb, rgb_to_hex};
 use cntrl_core::theme;
 use cntrl_core::lighting_modes::{
@@ -33,7 +37,18 @@ pub fn run() -> iced::Result {
         .title("CNTRL")
         .font(NERD_FONT_BYTES)
         .theme(|app: &App| app.ui_theme.clone())
-        .subscription(|_| iced::time::every(Duration::from_secs(1)).map(|_| Message::ThemePoll))
+        .subscription(|app: &App| {
+            let theme_poll =
+                iced::time::every(Duration::from_secs(1)).map(|_| Message::ThemePoll);
+            if app.tab == ShellTab::Canvas {
+                iced::Subscription::batch([
+                    theme_poll,
+                    iced::time::every(Duration::from_millis(100)).map(|_| Message::CanvasTick),
+                ])
+            } else {
+                theme_poll
+            }
+        })
         .window(window::Settings {
             size: iced::Size::new(1100.0, 720.0),
             ..window::Settings::default()
@@ -90,7 +105,7 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
     )
 }
 
-fn hexc(s: &str, fallback: Color) -> Color {
+pub(crate) fn hexc(s: &str, fallback: Color) -> Color {
     color_from_hex(s).unwrap_or(fallback)
 }
 
@@ -125,7 +140,7 @@ fn sidebar_bg(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Styl
 }
 
 /// Secondary/caption text colour: the theme text at reduced opacity.
-fn muted(colors: &theme::ThemeColors) -> Color {
+pub(crate) fn muted(colors: &theme::ThemeColors) -> Color {
     let mut c = hexc(&colors.text, Color::WHITE);
     c.a = 0.55;
     c
@@ -268,9 +283,10 @@ fn segment_style(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum ShellTab {
+pub(crate) enum ShellTab {
     #[default]
     Lighting,
+    Canvas,
     Devices,
     Sync,
 }
@@ -279,19 +295,40 @@ impl ShellTab {
     fn label(self) -> &'static str {
         match self {
             ShellTab::Lighting => "Lighting",
+            ShellTab::Canvas => "Canvas",
             ShellTab::Devices => "Devices",
             ShellTab::Sync => "Sync",
         }
     }
 
-    fn all() -> [ShellTab; 3] {
-        [ShellTab::Lighting, ShellTab::Devices, ShellTab::Sync]
+    fn all() -> [ShellTab; 4] {
+        [
+            ShellTab::Lighting,
+            ShellTab::Canvas,
+            ShellTab::Devices,
+            ShellTab::Sync,
+        ]
+    }
+
+    /// Startup tab override (`CNTRL_START_TAB=lighting|canvas|devices|sync`).
+    fn from_env() -> Self {
+        match std::env::var("CNTRL_START_TAB")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "canvas" => ShellTab::Canvas,
+            "devices" => ShellTab::Devices,
+            "sync" => ShellTab::Sync,
+            _ => ShellTab::Lighting,
+        }
     }
 }
 
 /// One selectable lighting target (SignalRGB-style per-device selection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TargetKind {
+pub(crate) enum TargetKind {
     Keyboard,
     Ite,
     Gpu,
@@ -396,6 +433,18 @@ struct App {
     devices: Vec<cntrl_core::devices::RgbDevice>,
     /// Persisted theme-sync settings (mirrors `settings.json`).
     settings: cntrl_core::settings::Settings,
+    /// Canvas tab: device arrangement + effect settings (persisted).
+    canvas_layout: CanvasLayout,
+    /// Currently selected canvas device id (for rotate/scale controls).
+    canvas_selected: Option<String>,
+    /// Rendered effect backdrop for the arrangement view.
+    canvas_preview: iced::widget::image::Handle,
+    /// Effect clock epoch (preview time base).
+    canvas_t0: std::time::Instant,
+    /// Live hardware stream, when running.
+    canvas_stream: Option<StreamHandle>,
+    /// Canvas tab status line (stream stats / errors / push results).
+    canvas_status: String,
 }
 
 /// Derive the editable lighting fields from a stored profile document.
@@ -429,12 +478,14 @@ fn derive_profile_state(doc: &ProfileDocument) -> (i32, u8, u8, (u8, u8, u8), (f
 impl App {
     fn from_profile(doc: ProfileDocument, active_slot: u8) -> Self {
         let (effect_id, brightness, speed, current_color, hsl) = derive_profile_state(&doc);
+        let canvas_layout = core_canvas::load_layout();
+        let canvas_preview = canvas_tab::render_preview(&canvas_layout, 0.0);
 
         Self {
             ui_theme: Theme::Dark,
             colors: theme::ThemeColors::default(),
             theme_mtime: None,
-            tab: ShellTab::Lighting,
+            tab: ShellTab::from_env(),
             effect_id,
             brightness,
             speed,
@@ -447,6 +498,29 @@ impl App {
             targets: Targets::default(),
             devices: cntrl_core::devices::enumerate(),
             settings: cntrl_core::settings::load(),
+            canvas_layout,
+            canvas_selected: None,
+            canvas_preview,
+            canvas_t0: std::time::Instant::now(),
+            canvas_stream: None,
+            canvas_status: String::new(),
+        }
+    }
+
+    /// Push the current layout/settings into the running stream (if any) so
+    /// edits take effect on the next hardware frame.
+    fn sync_stream(&self) {
+        if let Some(stream) = &self.canvas_stream {
+            if let Ok(mut shared) = stream.shared.lock() {
+                shared.layout = self.canvas_layout.clone();
+            }
+        }
+    }
+
+    /// Persist the canvas layout, reporting failures in the status line.
+    fn save_canvas_layout(&mut self) {
+        if let Err(e) = core_canvas::save_layout(&self.canvas_layout) {
+            self.canvas_status = format!("Layout save failed: {e}");
         }
     }
 
@@ -475,7 +549,7 @@ impl App {
 }
 
 #[derive(Debug, Clone)]
-enum Message {
+pub(crate) enum Message {
     ThemePoll,
     Tab(ShellTab),
     Effect(i32),
@@ -497,6 +571,23 @@ enum Message {
     ToggleThemeSyncPc(bool),
     ApplyThemeNow,
     ThemeApplied(Result<(u8, u8, u8), String>),
+    // ── Canvas tab ──
+    CanvasTick,
+    CanvasEffect(EffectKind),
+    CanvasSpeed(f32),
+    CanvasScale(f32),
+    CanvasBrightness(f32),
+    CanvasFps(f32),
+    CanvasSelect(Option<String>),
+    CanvasMove(String, f32, f32),
+    CanvasDragEnd,
+    CanvasToggleEnabled(String),
+    CanvasRotateSelected,
+    CanvasScaleSelected(f32),
+    CanvasResetLayout,
+    CanvasStreamToggle,
+    CanvasPushKeyboard,
+    CanvasPushKeyboardDone(Result<(u8, u8, u8), String>),
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
@@ -699,6 +790,150 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             };
             Task::none()
         }
+        Message::CanvasTick => {
+            let t = app.canvas_t0.elapsed().as_secs_f32();
+            app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t);
+            // Surface live stream stats while running.
+            if let Some(stream) = &app.canvas_stream {
+                if let Ok(stats) = stream.stats.lock() {
+                    let mut line = format!(
+                        "Streaming · {:.0} fps · frame {}",
+                        stats.actual_fps, stats.frames
+                    );
+                    if !stats.backends.is_empty() {
+                        line.push_str(&format!(" · {}", stats.backends));
+                    }
+                    if let Some(e) = &stats.last_error {
+                        line.push_str(&format!(" · last error: {e}"));
+                    }
+                    app.canvas_status = line;
+                }
+            }
+            Task::none()
+        }
+        Message::CanvasEffect(kind) => {
+            app.canvas_layout.settings.effect = kind;
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasSpeed(v) => {
+            app.canvas_layout.settings.speed = v;
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasScale(v) => {
+            app.canvas_layout.settings.scale = v;
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasBrightness(v) => {
+            app.canvas_layout.settings.brightness = v.clamp(0.0, 100.0);
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasFps(v) => {
+            app.canvas_layout.settings.fps = (v.round() as u32).clamp(5, 40);
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasSelect(id) => {
+            app.canvas_selected = id;
+            Task::none()
+        }
+        Message::CanvasMove(id, x, y) => {
+            if let Some(d) = app.canvas_layout.device_mut(&id) {
+                d.placement.x = x;
+                d.placement.y = y;
+            }
+            app.sync_stream();
+            Task::none()
+        }
+        Message::CanvasDragEnd => {
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasToggleEnabled(id) => {
+            if let Some(d) = app.canvas_layout.device_mut(&id) {
+                d.enabled = !d.enabled;
+            }
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasRotateSelected => {
+            if let Some(id) = app.canvas_selected.clone() {
+                if let Some(d) = app.canvas_layout.device_mut(&id) {
+                    d.placement.rotation_deg = (d.placement.rotation_deg + 90.0) % 360.0;
+                }
+                app.sync_stream();
+                app.save_canvas_layout();
+            }
+            Task::none()
+        }
+        Message::CanvasScaleSelected(factor) => {
+            if let Some(id) = app.canvas_selected.clone() {
+                if let Some(d) = app.canvas_layout.device_mut(&id) {
+                    d.placement.scale = (d.placement.scale * factor).clamp(0.5, 20.0);
+                }
+                app.sync_stream();
+                app.save_canvas_layout();
+            }
+            Task::none()
+        }
+        Message::CanvasResetLayout => {
+            let settings = app.canvas_layout.settings;
+            app.canvas_layout = CanvasLayout {
+                settings,
+                ..CanvasLayout::default()
+            };
+            app.canvas_selected = None;
+            app.sync_stream();
+            app.save_canvas_layout();
+            app.canvas_status = "Layout reset".into();
+            Task::none()
+        }
+        Message::CanvasStreamToggle => {
+            match app.canvas_stream.take() {
+                Some(stream) => {
+                    stream.stop();
+                    app.canvas_status = "Stream stopped".into();
+                }
+                None => {
+                    app.canvas_stream =
+                        Some(cntrl_core::canvas_stream::start(app.canvas_layout.clone()));
+                    app.canvas_status = "Stream starting…".into();
+                }
+            }
+            Task::none()
+        }
+        Message::CanvasPushKeyboard => {
+            let layout = app.canvas_layout.clone();
+            let t = app.canvas_t0.elapsed().as_secs_f32();
+            app.canvas_status = "Pushing snapshot to keyboard…".into();
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        cntrl_core::canvas_stream::push_keyboard_snapshot(&layout, t)
+                            .map(|c| (c[0], c[1], c[2]))
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(format!("Join: {e}")))
+                },
+                Message::CanvasPushKeyboardDone,
+            )
+        }
+        Message::CanvasPushKeyboardDone(result) => {
+            app.canvas_status = match result {
+                Ok((r, g, b)) => format!("Keyboard set to #{r:02x}{g:02x}{b:02x}"),
+                Err(e) => format!("Keyboard push failed: {e}"),
+            };
+            Task::none()
+        }
     }
 }
 
@@ -811,6 +1046,7 @@ fn panel_view(app: &App) -> Element<'_, Message> {
 
     let main: Element<'_, Message> = match app.tab {
         ShellTab::Lighting => lighting_view(app),
+        ShellTab::Canvas => canvas_view(app),
         ShellTab::Devices => devices_view(app),
         ShellTab::Sync => sync_view(app),
     };
@@ -1151,6 +1387,161 @@ fn target_chip<'a>(
     .padding([8, 12])
     .style(segment_style(colors, selected))
     .into()
+}
+
+fn canvas_view(app: &App) -> Element<'_, Message> {
+    let colors = &app.colors;
+    let s = app.canvas_layout.settings;
+    let streaming = app.canvas_stream.is_some();
+
+    let header = row![
+        section_header(
+            "Canvas",
+            "Arrange devices on one effect surface — drag to move; LEDs sample the pixels under them",
+            colors,
+        ),
+        Space::new().width(Length::Fill),
+        button(text(if streaming { "Stop stream" } else { "Start stream" }).size(15))
+            .on_press(Message::CanvasStreamToggle)
+            .padding([11, 26])
+            .style(accent_button_style(colors)),
+    ]
+    .spacing(16)
+    .align_y(Alignment::Center);
+
+    // ── the arrangement scene ──
+    let scene = container(canvas_tab::scene_element(
+        &app.canvas_layout,
+        &app.canvas_preview,
+        app.canvas_selected.as_deref(),
+        colors,
+    ))
+    .padding(6)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(card(colors));
+
+    // ── effect picker ──
+    let mut effect_row = row![].spacing(8);
+    for kind in EffectKind::all() {
+        effect_row = effect_row.push(
+            button(text(kind.label()).size(13))
+                .on_press(Message::CanvasEffect(kind))
+                .padding([8, 12])
+                .style(segment_style(colors, s.effect == kind)),
+        );
+    }
+
+    // ── sliders ──
+    let sliders = row![
+        labeled_slider(
+            "Speed",
+            format!("{:.1}×", s.speed),
+            0.1..=3.0,
+            s.speed,
+            colors,
+            Message::CanvasSpeed
+        ),
+        labeled_slider(
+            "Scale",
+            format!("{:.1}×", s.scale),
+            0.3..=3.0,
+            s.scale,
+            colors,
+            Message::CanvasScale
+        ),
+        labeled_slider(
+            "Brightness",
+            format!("{:.0}%", s.brightness),
+            0.0..=100.0,
+            s.brightness,
+            colors,
+            Message::CanvasBrightness
+        ),
+        labeled_slider(
+            "FPS",
+            format!("{}", s.fps),
+            5.0..=40.0,
+            s.fps as f32,
+            colors,
+            Message::CanvasFps
+        ),
+    ]
+    .spacing(18);
+
+    // ── device chips: toggle each device's canvas participation ──
+    let mut chips = row![].spacing(8);
+    for (id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
+        chips = chips.push(
+            button(text(spec.name).size(12))
+                .on_press(Message::CanvasToggleEnabled(id))
+                .padding([7, 10])
+                .style(segment_style(colors, enabled)),
+        );
+    }
+
+    // ── selection controls ──
+    let selected_name = app
+        .canvas_selected
+        .as_deref()
+        .and_then(cntrl_core::canvas::spec_by_id)
+        .map(|s| s.name)
+        .unwrap_or("none");
+    let sel_controls = row![
+        text(format!("Selected: {selected_name}"))
+            .size(12)
+            .color(muted(colors)),
+        button(text("⟳ 90°").size(12))
+            .on_press(Message::CanvasRotateSelected)
+            .padding([7, 10])
+            .style(segment_style(colors, false)),
+        button(text("−").size(12))
+            .on_press(Message::CanvasScaleSelected(1.0 / 1.15))
+            .padding([7, 12])
+            .style(segment_style(colors, false)),
+        button(text("+").size(12))
+            .on_press(Message::CanvasScaleSelected(1.15))
+            .padding([7, 12])
+            .style(segment_style(colors, false)),
+        Space::new().width(Length::Fill),
+        button(text("Push to keyboard").size(12))
+            .on_press(Message::CanvasPushKeyboard)
+            .padding([7, 12])
+            .style(segment_style(colors, false)),
+        button(text("Reset layout").size(12))
+            .on_press(Message::CanvasResetLayout)
+            .padding([7, 12])
+            .style(segment_style(colors, false)),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    let controls = container(
+        column![
+            row![
+                card_label("EFFECT", colors),
+                Space::new().width(Length::Fill),
+                status_text(&app.canvas_status, colors),
+            ]
+            .align_y(Alignment::Center),
+            effect_row,
+            sliders,
+            hairline_divider(colors),
+            row![
+                card_label("DEVICES", colors),
+                chips,
+            ]
+            .spacing(14)
+            .align_y(Alignment::Center),
+            sel_controls,
+        ]
+        .spacing(12),
+    )
+    .padding(18)
+    .width(Length::Fill)
+    .style(card(colors));
+
+    column![header, scene, controls].spacing(14).into()
 }
 
 fn sync_view(app: &App) -> Element<'_, Message> {

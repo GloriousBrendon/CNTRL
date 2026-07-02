@@ -46,6 +46,22 @@ enum Commands {
         #[arg(long)]
         no_apply: bool,
     },
+    /// Stream a canvas effect across ARGB devices using the saved layout
+    /// (arrange devices in the panel's Canvas tab). Runs until Ctrl-C.
+    Canvas {
+        /// Effect: wave | plasma | ripple | comet | aurora (default: saved).
+        #[arg(long)]
+        effect: Option<String>,
+        /// Frames per second (default: saved layout setting).
+        #[arg(long)]
+        fps: Option<u32>,
+        /// Stop after N seconds (default: run until Ctrl-C).
+        #[arg(long)]
+        seconds: Option<u64>,
+        /// List available effects and exit.
+        #[arg(long)]
+        list: bool,
+    },
     /// Quick lighting test frontend (no ad-hoc socket scripts).
     TestLight {
         /// Profile slot to read/update (0..=3).
@@ -102,6 +118,12 @@ fn run() -> Result<(), String> {
             pc_only,
         } => run_apply_theme(slot, keyboard_only, pc_only),
         Commands::ProbeRgb { force, no_apply } => run_probe_rgb(force, no_apply),
+        Commands::Canvas {
+            effect,
+            fps,
+            seconds,
+            list,
+        } => run_canvas(effect.as_deref(), fps, seconds, list),
         Commands::TestLight {
             slot,
             color,
@@ -165,6 +187,78 @@ fn run_probe_rgb(force: bool, no_apply: bool) -> Result<(), String> {
         }
     );
     println!("env_applied={}", if no_apply { "false" } else { "true" });
+    Ok(())
+}
+
+fn run_canvas(
+    effect: Option<&str>,
+    fps: Option<u32>,
+    seconds: Option<u64>,
+    list: bool,
+) -> Result<(), String> {
+    use cntrl_core::canvas_effects::EffectKind;
+
+    if list {
+        println!("canvas effects:");
+        for kind in EffectKind::all() {
+            println!("  {:<8} {}", kind.slug(), kind.label());
+        }
+        return Ok(());
+    }
+
+    let mut layout = cntrl_core::canvas::load_layout();
+    if let Some(name) = effect {
+        layout.settings.effect = EffectKind::from_slug(name)
+            .ok_or_else(|| format!("unknown effect {name:?}; see `cntrl canvas --list`"))?;
+    }
+    if let Some(f) = fps {
+        layout.settings.fps = f.clamp(1, 60);
+    }
+
+    let enabled: Vec<&str> = layout
+        .devices
+        .iter()
+        .filter(|d| d.enabled)
+        .map(|d| d.id.as_str())
+        .collect();
+    println!(
+        "streaming {} at {} fps to [{}] — layout: {}",
+        layout.settings.effect.label(),
+        layout.settings.fps,
+        enabled.join(", "),
+        cntrl_core::canvas::layout_path()?.display(),
+    );
+    println!("Ctrl-C to stop.");
+
+    let handle = cntrl_core::canvas_stream::start(layout);
+    let deadline = seconds.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+
+    // Report stats once a second until the deadline / Ctrl-C.
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        {
+            let stats = handle.stats.lock().map_err(|e| e.to_string())?;
+            let err = stats
+                .last_error
+                .as_deref()
+                .map(|e| format!(" · last error: {e}"))
+                .unwrap_or_default();
+            println!(
+                "  {:.0} fps · frame {} · {}{}",
+                stats.actual_fps, stats.frames, stats.backends, err
+            );
+        }
+        if let Some(d) = deadline {
+            if std::time::Instant::now() >= d {
+                break;
+            }
+        }
+        if !handle.is_running() {
+            return Err("stream thread exited unexpectedly".to_string());
+        }
+    }
+    handle.stop();
+    println!("stream stopped.");
     Ok(())
 }
 

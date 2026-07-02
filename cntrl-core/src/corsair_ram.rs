@@ -446,6 +446,113 @@ fn apply_i2c(r: u8, g: u8, b: u8) -> Result<String, String> {
     ))
 }
 
+// ── canvas streaming (persistent direct session) ─────────────────────
+
+/// Per-LED colors via protocol ≥ 4 direct block write (0x31/0x32), without
+/// the effect-config round trip — for per-frame streaming.
+#[cfg(target_os = "linux")]
+fn set_colors_block_multi(
+    dev: &mut i2cdev::linux::LinuxI2CDevice,
+    colors: &[[u8; 3]],
+) -> Result<(), String> {
+    use i2cdev::core::I2CDevice;
+
+    let led_count = colors.len().min(u8::MAX as usize) as u8;
+    let mut payload = Vec::with_capacity(colors.len() * 3 + 2);
+    payload.push(led_count);
+    for c in colors.iter().take(led_count as usize) {
+        payload.extend_from_slice(c);
+    }
+    payload.push(crc8(&payload));
+
+    let first = payload.len().min(32);
+    dev.smbus_write_block_data(0x31, &payload[..first])
+        .map_err(|e| format!("block write 0x31: {e}"))?;
+    if payload.len() > 32 {
+        dev.smbus_write_block_data(0x32, &payload[32..])
+            .map_err(|e| format!("block write 0x32: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Persistent streaming session: DIMMs detected and switched to static mode
+/// once, then `write_colors` pushes per-LED colors per DIMM via block writes.
+#[cfg(target_os = "linux")]
+pub struct RamDirect {
+    dimms: Vec<(i2cdev::linux::LinuxI2CDevice, String)>,
+    led_count: u8,
+}
+
+#[cfg(target_os = "linux")]
+impl RamDirect {
+    pub fn open() -> Result<Self, String> {
+        let led_count = std::env::var("CNTRL_CORSAIR_RAM_LED_COUNT")
+            .ok()
+            .and_then(|s| s.trim().parse::<u8>().ok())
+            .unwrap_or(DEFAULT_LED_COUNT);
+
+        let busses = find_piix4_busses();
+        if busses.is_empty() {
+            return Err("no SMBus PIIX4 adapters found".to_string());
+        }
+        let mut dimms = Vec::new();
+        for bus in &busses {
+            for addr in DDR5_ADDR_LO..=DDR5_ADDR_HI {
+                let mut dev = match open_i2c(bus, addr, false)
+                    .or_else(|_| open_i2c(bus, addr, true))
+                {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+                if detect_corsair(&mut dev).is_none() {
+                    continue;
+                }
+                let tag = format!("{bus}@0x{addr:02x}");
+                // Static mode once so the DIMM accepts direct colors.
+                if let Err(e) = set_static_effect(&mut dev, 0, 0, 0) {
+                    eprintln!("[corsair_ram] {tag}: effect setup failed ({e}), streaming anyway");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                dimms.push((dev, tag));
+            }
+        }
+        if dimms.is_empty() {
+            return Err("no Corsair DRAM controllers found on PIIX4 SMBus".to_string());
+        }
+        Ok(Self { dimms, led_count })
+    }
+
+    pub fn dimm_count(&self) -> usize {
+        self.dimms.len()
+    }
+
+    pub fn led_count(&self) -> u8 {
+        self.led_count
+    }
+
+    /// One frame: `per_dimm[i]` is the LED color list for DIMM `i`. Extra
+    /// DIMMs (beyond the provided lists) reuse the last list, so two placed
+    /// canvas sticks drive four physical DIMMs sensibly.
+    pub fn write_colors(&mut self, per_dimm: &[Vec<[u8; 3]>]) -> Result<(), String> {
+        if per_dimm.is_empty() {
+            return Ok(());
+        }
+        let mut first_err = None;
+        for (i, (dev, tag)) in self.dimms.iter_mut().enumerate() {
+            let colors = per_dimm.get(i).unwrap_or(&per_dimm[per_dimm.len() - 1]);
+            let mut fitted = colors.clone();
+            fitted.resize(self.led_count as usize, *colors.last().unwrap_or(&[0, 0, 0]));
+            if let Err(e) = set_colors_block_multi(dev, &fitted) {
+                first_err.get_or_insert(format!("{tag}: {e}"));
+            }
+        }
+        match first_err {
+            None => Ok(()),
+            Some(e) => Err(e),
+        }
+    }
+}
+
 // ── public entry point ───────────────────────────────────────────────
 
 pub fn apply_profile(doc: &ProfileDocument) -> Result<String, String> {

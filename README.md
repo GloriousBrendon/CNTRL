@@ -11,6 +11,7 @@ The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`*
 | `cntrl devices` | Native RGB device inventory + status |
 | `cntrl apply-theme` | Apply the theme accent to the lighting |
 | `cntrl daemon` | Unix socket daemon (foreground; HID apply + theme watcher) |
+| `cntrl canvas` | Stream a canvas effect across ARGB devices (headless; layout from the Canvas tab) |
 | GTK compatibility launcher | `cargo run -p cntrl-gtk` (opens ICED panel) |
 | ICED only | `cargo run -p cntrl-iced` (same UI as `cntrl panel`) |
 
@@ -28,6 +29,15 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
 `cntrl devices` is a native inventory (keyboard + ITE controller) — green = ready, red = permission-blocked, with the exact node and reason.
+
+## LED canvas (SignalRGB-style effects, fully native)
+
+The **Canvas** tab maps every device onto one virtual effect surface: each device declares its LED geometry (per-key for the keyboard, per-LED for the ARGB strips), you drag/rotate/scale devices to mirror your desk, and effects render onto the canvas while every LED samples the pixel underneath it — so one animation flows across strips, GPU and RAM in physical order. No browser engine, no external tools: effects are pure Rust functions and the sampler is the native equivalent of SignalRGB's `device.color(x, y)`.
+
+- **Demo effects:** Rainbow Wave, Plasma, Ripple, Comet, Aurora (`cntrl canvas --list`).
+- **Live streaming:** ITE D_LED1/D_LED2 strips get true per-LED frames (~20 fps); GPU gets a sampled zone color (never saved to its flash); Corsair RAM gets per-LED SMBus writes (rate-limited). The keyboard's vendor pipeline is too slow to stream, so it takes one-shot pushes (**Push to keyboard**).
+- **Arrangement:** drag devices on the Canvas tab; selection supports rotate (90°) and scale. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
+- **Headless:** `cntrl canvas --effect plasma --fps 20` streams with the saved layout; `--seconds N` for a timed run.
 
 ## Theme switcher sync
 
