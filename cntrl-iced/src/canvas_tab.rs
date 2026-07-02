@@ -67,7 +67,8 @@ fn to_units(bounds: Rectangle, p: Point) -> (f32, f32) {
 /// Topmost device under a canvas-unit point (reverse draw order).
 fn hit_test(layout: &CanvasLayout, unit: (f32, f32)) -> Option<&canvas::PlacedDevice> {
     layout.devices.iter().rev().find(|d| {
-        canvas::spec_by_id(&d.id)
+        layout
+            .spec(&d.id)
             .is_some_and(|spec| d.placement.contains(spec.size, unit))
     })
 }
@@ -150,57 +151,69 @@ impl icanvas::Program<Message> for Scene<'_> {
         let to_px = |unit: (f32, f32)| Point::new(o.x + unit.0 * ppu, o.y + unit.1 * ppu);
 
         for d in &self.layout.devices {
-            let Some(spec) = canvas::spec_by_id(&d.id) else {
+            let Some(spec) = self.layout.spec(&d.id) else {
                 continue;
             };
             let pl = &d.placement;
             let selected = self.selected == Some(d.id.as_str());
-            let corners = [
-                (0.0, 0.0),
-                (spec.size.0, 0.0),
-                (spec.size.0, spec.size.1),
-                (0.0, spec.size.1),
-            ]
-            .map(|c| to_px(pl.to_canvas(spec.size, c)));
-
-            let boxp = icanvas::Path::new(|b| {
-                b.move_to(corners[0]);
-                b.line_to(corners[1]);
-                b.line_to(corners[2]);
-                b.line_to(corners[3]);
-                b.close();
-            });
             let dim = if d.enabled { 0.28 } else { 0.55 };
-            f.fill(&boxp, Color::from_rgba(0.0, 0.0, 0.0, dim));
-            f.stroke(
-                &boxp,
-                icanvas::Stroke::default()
-                    .with_color(if selected {
-                        accent
-                    } else {
-                        Color::from_rgba(1.0, 1.0, 1.0, if d.enabled { 0.55 } else { 0.25 })
-                    })
-                    .with_width(if selected { 2.5 } else { 1.0 }),
-            );
+            let outline_color = if selected {
+                accent
+            } else {
+                Color::from_rgba(1.0, 1.0, 1.0, if d.enabled { 0.55 } else { 0.25 })
+            };
+            let outline = icanvas::Stroke::default()
+                .with_color(outline_color)
+                .with_width(if selected { 2.5 } else { 1.0 });
 
-            // LED dots: each LED's actual sampling point.
+            let shape = if spec.is_fan {
+                // Fan: circular outline around the LED ring.
+                let center = to_px(pl.to_canvas(spec.size, (spec.size.0 / 2.0, spec.size.1 / 2.0)));
+                let radius = spec.size.0 / 2.0 * pl.scale * ppu;
+                icanvas::Path::circle(center, radius)
+            } else {
+                let corners = [
+                    (0.0, 0.0),
+                    (spec.size.0, 0.0),
+                    (spec.size.0, spec.size.1),
+                    (0.0, spec.size.1),
+                ]
+                .map(|c| to_px(pl.to_canvas(spec.size, c)));
+                icanvas::Path::new(|b| {
+                    b.move_to(corners[0]);
+                    b.line_to(corners[1]);
+                    b.line_to(corners[2]);
+                    b.line_to(corners[3]);
+                    b.close();
+                })
+            };
+            f.fill(&shape, Color::from_rgba(0.0, 0.0, 0.0, dim));
+            f.stroke(&shape, outline);
+
+            // LED dots: each LED's actual sampling point. The chain's first
+            // LED is drawn in accent so backwards wiring is easy to spot
+            // (flip it with the device's Reverse toggle).
             let r = (0.45 * pl.scale * ppu).clamp(1.5, 6.0);
             let led_alpha = if d.enabled { 0.95 } else { 0.35 };
-            for &p in &spec.led_positions {
+            for (i, &p) in spec.led_positions.iter().enumerate() {
                 let c = to_px(pl.to_canvas(spec.size, p));
+                let is_first = i == if d.reversed { spec.led_positions.len() - 1 } else { 0 };
                 f.fill(
-                    &icanvas::Path::circle(c, r),
-                    Color::from_rgba(1.0, 1.0, 1.0, led_alpha),
+                    &icanvas::Path::circle(c, if is_first { r * 1.4 } else { r }),
+                    if is_first {
+                        accent
+                    } else {
+                        Color::from_rgba(1.0, 1.0, 1.0, led_alpha)
+                    },
                 );
             }
 
             // Label above the box center.
             let center = to_px(pl.to_canvas(spec.size, (spec.size.0 / 2.0, spec.size.1 / 2.0)));
-            let label = if spec.streamable {
-                spec.name.to_string()
-            } else {
-                format!("{} (push only)", spec.name)
-            };
+            let mut label = spec.name.to_string();
+            if d.reversed {
+                label.push_str(" ⇄");
+            }
             f.fill_text(icanvas::Text {
                 content: label,
                 position: Point::new(center.x, center.y),
@@ -274,6 +287,6 @@ pub fn placed_specs(layout: &CanvasLayout) -> Vec<(String, LedSpec, bool)> {
     layout
         .devices
         .iter()
-        .filter_map(|d| canvas::spec_by_id(&d.id).map(|s| (d.id.clone(), s, d.enabled)))
+        .filter_map(|d| layout.spec(&d.id).map(|s| (d.id.clone(), s, d.enabled)))
         .collect()
 }

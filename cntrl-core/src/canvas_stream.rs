@@ -192,9 +192,10 @@ fn worker(
             }
         }
 
-        // ── ITE ARGB strips: per-LED every frame ──
-        let dled1 = sample_if_enabled(&frame, &layout, canvas::DEV_DLED1, s.brightness);
-        let dled2 = sample_if_enabled(&frame, &layout, canvas::DEV_DLED2, s.brightness);
+        // ── ITE ARGB headers: assemble each daisy chain from its placed
+        // segments (fans/strips) in chain order, honoring per-device reverse ──
+        let dled1 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED1, s.brightness);
+        let dled2 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED2, s.brightness);
         if dled1.is_some() || dled2.is_some() {
             if sessions.ite.is_none() && sessions.ite_err.is_none() {
                 match crate::ite_rgb::IteDirect::open() {
@@ -322,11 +323,40 @@ fn sample_if_enabled(
     brightness: f32,
 ) -> Option<Vec<[u8; 3]>> {
     let placed = layout.device(id).filter(|d| d.enabled)?;
-    let spec = canvas::spec_by_id(id)?;
+    let spec = layout.spec(id)?;
     if !spec.streamable {
         return None;
     }
-    Some(canvas::sample_device(frame, &spec, &placed.placement, brightness))
+    Some(canvas::sample_device(frame, &spec, placed, brightness))
+}
+
+/// Concatenate a header's placed segments into one wire buffer, in chain
+/// order. Disabled segments contribute black (they still occupy their LEDs
+/// in the chain); `reversed` segments are flipped for backwards wiring.
+/// Returns `None` when every segment is disabled (header untouched).
+fn assemble_chain(
+    frame: &Frame,
+    layout: &CanvasLayout,
+    header: &str,
+    brightness: f32,
+) -> Option<Vec<[u8; 3]>> {
+    let segments = layout.chains.header(header).to_vec();
+    let mut wire = Vec::new();
+    let mut any = false;
+    for (i, seg) in segments.iter().enumerate() {
+        let id = format!("{header}.{i}");
+        match sample_if_enabled(frame, layout, &id, brightness) {
+            Some(mut colors) => {
+                any = true;
+                if layout.device(&id).is_some_and(|d| d.reversed) {
+                    colors.reverse();
+                }
+                wire.extend(colors);
+            }
+            None => wire.extend(std::iter::repeat([0u8; 3]).take(seg.leds as usize)),
+        }
+    }
+    any.then_some(wire)
 }
 
 fn average_if_enabled(
@@ -336,13 +366,8 @@ fn average_if_enabled(
     brightness: f32,
 ) -> Option<[u8; 3]> {
     let placed = layout.device(id).filter(|d| d.enabled)?;
-    let spec = canvas::spec_by_id(id)?;
-    Some(canvas::average_device_color(
-        frame,
-        &spec,
-        &placed.placement,
-        brightness,
-    ))
+    let spec = layout.spec(id)?;
+    Some(canvas::average_device_color(frame, &spec, placed, brightness))
 }
 
 /// One-shot: sample the keyboard's placement at time `t` and persist the
@@ -353,7 +378,7 @@ pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], 
         .device(canvas::DEV_KEYBOARD)
         .filter(|d| d.enabled)
         .ok_or_else(|| "keyboard is disabled on the canvas".to_string())?;
-    let spec = canvas::spec_by_id(canvas::DEV_KEYBOARD).expect("keyboard spec");
+    let spec = layout.spec(canvas::DEV_KEYBOARD).expect("keyboard spec");
     let s = layout.settings;
     let mut frame = Frame::canvas_sized();
     let params = EffectParams {
@@ -362,7 +387,7 @@ pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], 
         color: s.color,
     };
     canvas_effects::render(s.effect, &mut frame, t, &params);
-    let avg = canvas::average_device_color(&frame, &spec, &placed.placement, s.brightness);
+    let avg = canvas::average_device_color(&frame, &spec, placed, s.brightness);
     // Fast protocol client first; legacy replay pipeline as fallback.
     match crate::mchose_direct::Ace68Direct::open()
         .and_then(|mut d| d.apply_solid(avg[0], avg[1], avg[2]))

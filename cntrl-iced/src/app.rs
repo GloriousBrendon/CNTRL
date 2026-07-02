@@ -588,6 +588,13 @@ pub(crate) enum Message {
     CanvasStreamToggle,
     CanvasPushKeyboard,
     CanvasPushKeyboardDone(Result<(u8, u8, u8), String>),
+    /// Configure an ARGB header's daisy chain: 0 = single strip, n = n fans.
+    CanvasChainFans(&'static str, u8),
+    // Per-element trim on the selected device.
+    CanvasDevBrightness(f32),
+    CanvasDevHue(f32),
+    CanvasDevSaturation(f32),
+    CanvasDevReverse,
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
@@ -934,6 +941,46 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             };
             Task::none()
         }
+        Message::CanvasChainFans(header, n) => {
+            app.canvas_layout.chains.set_fans(header, n);
+            app.canvas_layout.reconcile();
+            // Selection may have pointed at a dropped segment.
+            if let Some(id) = &app.canvas_selected {
+                if app.canvas_layout.device(id).is_none() {
+                    app.canvas_selected = None;
+                }
+            }
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasDevBrightness(v) => {
+            with_selected(app, |d| d.brightness = v.clamp(0.0, 100.0));
+            Task::none()
+        }
+        Message::CanvasDevHue(v) => {
+            with_selected(app, |d| d.hue_shift = v.clamp(0.0, 360.0));
+            Task::none()
+        }
+        Message::CanvasDevSaturation(v) => {
+            with_selected(app, |d| d.saturation = v.clamp(0.0, 200.0));
+            Task::none()
+        }
+        Message::CanvasDevReverse => {
+            with_selected(app, |d| d.reversed = !d.reversed);
+            Task::none()
+        }
+    }
+}
+
+/// Mutate the selected canvas device, then sync + persist.
+fn with_selected(app: &mut App, f: impl FnOnce(&mut cntrl_core::canvas::PlacedDevice)) {
+    if let Some(id) = app.canvas_selected.clone() {
+        if let Some(d) = app.canvas_layout.device_mut(&id) {
+            f(d);
+        }
+        app.sync_stream();
+        app.save_canvas_layout();
     }
 }
 
@@ -1461,7 +1508,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
         labeled_slider(
             "FPS",
             format!("{}", s.fps),
-            5.0..=40.0,
+            5.0..=60.0,
             s.fps as f32,
             colors,
             Message::CanvasFps
@@ -1472,22 +1519,55 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     // ── device chips: toggle each device's canvas participation ──
     let mut chips = row![].spacing(8);
     for (id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
+        // Compact names so a fully split chain still fits on one row.
+        let label = spec
+            .name
+            .replace("ARGB Header ", "Header ")
+            .replace("Header 1 ", "H1 ")
+            .replace("Header 2 ", "H2 ");
         chips = chips.push(
-            button(text(spec.name).size(12))
+            button(text(label).size(12))
                 .on_press(Message::CanvasToggleEnabled(id))
                 .padding([7, 10])
                 .style(segment_style(colors, enabled)),
         );
     }
 
-    // ── selection controls ──
+    // ── ARGB header chains: what's daisy-chained on each header ──
+    let chain_row = |header: &'static str, label: &'static str| {
+        let segs = app.canvas_layout.chains.header(header);
+        let fans = segs.iter().filter(|s| s.kind == cntrl_core::canvas::SegmentKind::Fan).count() as u8;
+        let is_strip = fans == 0;
+        let mut r = row![text(label).size(12).color(muted(&app.colors))].spacing(6);
+        r = r.push(
+            button(text("Strip").size(11))
+                .on_press(Message::CanvasChainFans(header, 0))
+                .padding([5, 9])
+                .style(segment_style(&app.colors, is_strip)),
+        );
+        for n in 2..=4u8 {
+            r = r.push(
+                button(text(format!("{n} fans")).size(11))
+                    .on_press(Message::CanvasChainFans(header, n))
+                    .padding([5, 9])
+                    .style(segment_style(&app.colors, fans == n)),
+            );
+        }
+        r.align_y(Alignment::Center)
+    };
+
+    // ── selection controls + per-element trim (SignalRGB-style) ──
+    let selected = app
+        .canvas_selected
+        .as_deref()
+        .and_then(|id| app.canvas_layout.device(id));
     let selected_name = app
         .canvas_selected
         .as_deref()
-        .and_then(cntrl_core::canvas::spec_by_id)
+        .and_then(|id| app.canvas_layout.spec(id))
         .map(|s| s.name)
-        .unwrap_or("none");
-    let sel_controls = row![
+        .unwrap_or_else(|| "none".to_string());
+    let mut sel_controls = row![
         text(format!("Selected: {selected_name}"))
             .size(12)
             .color(muted(colors)),
@@ -1503,18 +1583,63 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             .on_press(Message::CanvasScaleSelected(1.15))
             .padding([7, 12])
             .style(segment_style(colors, false)),
-        Space::new().width(Length::Fill),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if let Some(d) = selected {
+        sel_controls = sel_controls.push(
+            button(text(if d.reversed { "⇄ Reversed" } else { "⇄ Reverse" }).size(12))
+                .on_press(Message::CanvasDevReverse)
+                .padding([7, 10])
+                .style(segment_style(colors, d.reversed)),
+        );
+    }
+    sel_controls = sel_controls.push(Space::new().width(Length::Fill));
+    sel_controls = sel_controls.push(
         button(text("Push to keyboard").size(12))
             .on_press(Message::CanvasPushKeyboard)
             .padding([7, 12])
             .style(segment_style(colors, false)),
+    );
+    sel_controls = sel_controls.push(
         button(text("Reset layout").size(12))
             .on_press(Message::CanvasResetLayout)
             .padding([7, 12])
             .style(segment_style(colors, false)),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    );
+
+    // Per-device trim sliders, visible while something is selected.
+    let trim: Element<'_, Message> = match selected {
+        Some(d) => row![
+            labeled_slider(
+                "Device brightness",
+                format!("{:.0}%", d.brightness),
+                0.0..=100.0,
+                d.brightness,
+                colors,
+                Message::CanvasDevBrightness
+            ),
+            labeled_slider(
+                "Hue shift",
+                format!("{:.0}°", d.hue_shift),
+                0.0..=360.0,
+                d.hue_shift,
+                colors,
+                Message::CanvasDevHue
+            ),
+            labeled_slider(
+                "Saturation",
+                format!("{:.0}%", d.saturation),
+                0.0..=200.0,
+                d.saturation,
+                colors,
+                Message::CanvasDevSaturation
+            ),
+        ]
+        .spacing(18)
+        .into(),
+        None => Space::new().height(0).into(),
+    };
 
     let controls = container(
         column![
@@ -1527,13 +1652,18 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             effect_row,
             sliders,
             hairline_divider(colors),
+            row![card_label("DEVICES", colors), chips]
+                .spacing(14)
+                .align_y(Alignment::Center),
             row![
-                card_label("DEVICES", colors),
-                chips,
+                card_label("ARGB CHAINS", colors),
+                chain_row(cntrl_core::canvas::CHAIN_DLED1, "Header 1:"),
+                chain_row(cntrl_core::canvas::CHAIN_DLED2, "Header 2:"),
             ]
-            .spacing(14)
+            .spacing(18)
             .align_y(Alignment::Center),
             sel_controls,
+            trim,
         ]
         .spacing(12),
     )

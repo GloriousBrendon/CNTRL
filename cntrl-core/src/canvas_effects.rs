@@ -228,6 +228,27 @@ fn scale3(c: [u8; 3], k: f32) -> (f32, f32, f32) {
     (c[0] as f32 * k, c[1] as f32 * k, c[2] as f32 * k)
 }
 
+/// RGB → (hue ∈ [0,360), saturation ∈ [0,1], value ∈ [0,1]).
+pub fn rgb_to_hsv(c: [u8; 3]) -> (f32, f32, f32) {
+    let r = c[0] as f32 / 255.0;
+    let g = c[1] as f32 / 255.0;
+    let b = c[2] as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d < f32::EPSILON {
+        0.0
+    } else if (max - r).abs() < f32::EPSILON {
+        (60.0 * (g - b) / d).rem_euclid(360.0)
+    } else if (max - g).abs() < f32::EPSILON {
+        60.0 * (b - r) / d + 120.0
+    } else {
+        60.0 * (r - g) / d + 240.0
+    };
+    let s = if max < f32::EPSILON { 0.0 } else { d / max };
+    (h, s, max)
+}
+
 fn rgb_to_hue(c: [u8; 3]) -> f32 {
     let r = c[0] as f32 / 255.0;
     let g = c[1] as f32 / 255.0;

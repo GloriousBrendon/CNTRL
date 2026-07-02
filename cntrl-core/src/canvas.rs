@@ -97,10 +97,11 @@ impl Frame {
 
 // ── device LED geometry ──────────────────────────────────────────────
 
-/// Stable ids for canvas devices (what the layout file keys on).
+/// Stable ids for canvas devices (what the layout file keys on). Chain
+/// segments use `dled1.N` / `dled2.N` (segment N along the header's chain).
 pub const DEV_KEYBOARD: &str = "keyboard";
-pub const DEV_DLED1: &str = "dled1";
-pub const DEV_DLED2: &str = "dled2";
+pub const CHAIN_DLED1: &str = "dled1";
+pub const CHAIN_DLED2: &str = "dled2";
 pub const DEV_GPU: &str = "gpu";
 pub const DEV_RAM0: &str = "ram0";
 pub const DEV_RAM1: &str = "ram1";
@@ -109,29 +110,118 @@ pub const DEV_RAM1: &str = "ram1";
 /// `size` is the bounding box, `led_positions` one `[x,y]` per LED in order.
 #[derive(Debug, Clone)]
 pub struct LedSpec {
-    pub id: &'static str,
-    pub name: &'static str,
+    pub id: String,
+    pub name: String,
     pub size: (f32, f32),
     pub led_positions: Vec<(f32, f32)>,
-    /// Whether the hardware can take a live per-LED stream (the keyboard's
-    /// apply pipeline takes seconds, so it only gets one-shot pushes).
+    /// Drawn as a ring (fan) rather than a box.
+    pub is_fan: bool,
+    /// Whether the hardware takes a live per-LED stream.
     pub streamable: bool,
 }
 
-/// Every device CNTRL can place on the canvas, in a stable order.
-pub fn all_specs() -> Vec<LedSpec> {
-    vec![
-        keyboard_spec(),
-        strip_spec(DEV_DLED1, "ARGB Strip 1", dled1_count()),
-        strip_spec(DEV_DLED2, "ARGB Strip 2", dled2_count()),
-        gpu_spec(),
-        ram_spec(DEV_RAM0, "RAM 1"),
-        ram_spec(DEV_RAM1, "RAM 2"),
-    ]
+/// What is physically plugged along one ARGB header's daisy chain, in chain
+/// order — SignalRGB's "components on a channel". Each segment becomes its
+/// own placeable canvas device, so individual fans can be positioned (and
+/// reversed) to match the case even when the chain wiring is out of order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SegmentKind {
+    Fan,
+    Strip,
 }
 
-pub fn spec_by_id(id: &str) -> Option<LedSpec> {
-    all_specs().into_iter().find(|s| s.id == id)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainSegment {
+    pub kind: SegmentKind,
+    pub leds: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Chains {
+    pub dled1: Vec<ChainSegment>,
+    pub dled2: Vec<ChainSegment>,
+}
+
+impl Default for Chains {
+    fn default() -> Self {
+        Self {
+            dled1: vec![ChainSegment {
+                kind: SegmentKind::Strip,
+                leds: dled1_count(),
+            }],
+            dled2: vec![ChainSegment {
+                kind: SegmentKind::Strip,
+                leds: dled2_count(),
+            }],
+        }
+    }
+}
+
+impl Chains {
+    pub fn header(&self, header: &str) -> &[ChainSegment] {
+        match header {
+            CHAIN_DLED1 => &self.dled1,
+            _ => &self.dled2,
+        }
+    }
+
+    /// Split a header's total LEDs into `n` equal fans (remainder goes to
+    /// the last fan), or back to a single strip with `n == 0`.
+    pub fn set_fans(&mut self, header: &str, n: u8) {
+        let total = match header {
+            CHAIN_DLED1 => dled1_count(),
+            _ => dled2_count(),
+        };
+        let segments = if n == 0 {
+            vec![ChainSegment {
+                kind: SegmentKind::Strip,
+                leds: total,
+            }]
+        } else {
+            let per = total / n;
+            let mut v: Vec<ChainSegment> = (0..n)
+                .map(|_| ChainSegment {
+                    kind: SegmentKind::Fan,
+                    leds: per,
+                })
+                .collect();
+            v[n as usize - 1].leds += total - per * n;
+            v
+        };
+        match header {
+            CHAIN_DLED1 => self.dled1 = segments,
+            _ => self.dled2 = segments,
+        }
+    }
+}
+
+/// Every device CNTRL can place on the canvas, in a stable order.
+pub fn all_specs(chains: &Chains) -> Vec<LedSpec> {
+    let mut out = vec![keyboard_spec()];
+    for (header, label) in [(CHAIN_DLED1, "Header 1"), (CHAIN_DLED2, "Header 2")] {
+        let segments = chains.header(header);
+        let single = segments.len() == 1;
+        for (i, seg) in segments.iter().enumerate() {
+            let id = format!("{header}.{i}");
+            let name = match (seg.kind, single) {
+                (SegmentKind::Strip, true) => format!("ARGB {label}"),
+                (SegmentKind::Strip, false) => format!("{label} Strip {}", i + 1),
+                (SegmentKind::Fan, _) => format!("{label} Fan {}", i + 1),
+            };
+            out.push(match seg.kind {
+                SegmentKind::Fan => fan_spec(id, name, seg.leds),
+                SegmentKind::Strip => strip_spec(id, name, seg.leds),
+            });
+        }
+    }
+    out.push(gpu_spec());
+    out.push(ram_spec(DEV_RAM0, "RAM 1"));
+    out.push(ram_spec(DEV_RAM1, "RAM 2"));
+    out
+}
+
+pub fn spec_by_id(chains: &Chains, id: &str) -> Option<LedSpec> {
+    all_specs(chains).into_iter().find(|s| s.id == id)
 }
 
 /// D_LED1/D_LED2 totals mirror `ite_rgb`'s defaults (32/36) and the same
@@ -163,22 +253,44 @@ fn keyboard_spec() -> LedSpec {
         .map(|k| (k.x as f32 + k.width as f32 / 2.0, k.y as f32 + 0.5))
         .collect();
     LedSpec {
-        id: DEV_KEYBOARD,
-        name: "Keyboard",
+        id: DEV_KEYBOARD.to_string(),
+        name: "Keyboard".to_string(),
         size: (15.0, 5.0),
         led_positions,
+        is_fan: false,
         // Per-key live frames via the 0xDD protocol (mchose_direct).
         streamable: true,
     }
 }
 
-fn strip_spec(id: &'static str, name: &'static str, count: u8) -> LedSpec {
+fn strip_spec(id: String, name: String, count: u8) -> LedSpec {
     let led_positions = (0..count).map(|i| (i as f32 + 0.5, 0.5)).collect();
     LedSpec {
         id,
         name,
         size: (f32::from(count), 1.0),
         led_positions,
+        is_fan: false,
+        streamable: true,
+    }
+}
+
+/// ARGB fan: `count` LEDs on a ring, LED 0 at 12 o'clock going clockwise.
+fn fan_spec(id: String, name: String, count: u8) -> LedSpec {
+    let n = count.max(1) as usize;
+    let (cx, cy, r) = (2.0f32, 2.0f32, 1.5f32);
+    let led_positions = (0..n)
+        .map(|i| {
+            let th = (i as f32 / n as f32) * std::f32::consts::TAU;
+            (cx + r * th.sin(), cy - r * th.cos())
+        })
+        .collect();
+    LedSpec {
+        id,
+        name,
+        size: (4.0, 4.0),
+        led_positions,
+        is_fan: true,
         streamable: true,
     }
 }
@@ -186,23 +298,25 @@ fn strip_spec(id: &'static str, name: &'static str, count: u8) -> LedSpec {
 fn gpu_spec() -> LedSpec {
     // One logical zone — sampled at the shroud center.
     LedSpec {
-        id: DEV_GPU,
-        name: "GPU",
+        id: DEV_GPU.to_string(),
+        name: "GPU".to_string(),
         size: (6.0, 3.0),
         led_positions: vec![(3.0, 1.5)],
+        is_fan: false,
         streamable: true,
     }
 }
 
-fn ram_spec(id: &'static str, name: &'static str) -> LedSpec {
+fn ram_spec(id: &str, name: &str) -> LedSpec {
     // Corsair DDR5: 10 LEDs along the top edge, stick standing vertically.
     let n = 10usize;
     let led_positions = (0..n).map(|i| (0.5, i as f32 + 0.5)).collect();
     LedSpec {
-        id,
-        name,
+        id: id.to_string(),
+        name: name.to_string(),
         size: (1.0, n as f32),
         led_positions,
+        is_fan: false,
         streamable: true,
     }
 }
@@ -258,7 +372,8 @@ impl Placement {
     }
 }
 
-/// A device placed on the canvas.
+/// A device placed on the canvas, with per-element tuning (SignalRGB-style
+/// device properties: invert for backwards-mounted fans, plus color trim).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlacedDevice {
     pub id: String,
@@ -266,10 +381,41 @@ pub struct PlacedDevice {
     /// Included when streaming / sampling.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Per-device brightness percent (multiplies the global brightness).
+    #[serde(default = "default_100")]
+    pub brightness: f32,
+    /// Hue rotation in degrees applied to sampled colors.
+    #[serde(default)]
+    pub hue_shift: f32,
+    /// Saturation percent (100 = unchanged, 0 = white-washed, 200 = vivid).
+    #[serde(default = "default_100")]
+    pub saturation: f32,
+    /// Reverse this segment's LED order on the wire — fixes fans/strips
+    /// whose daisy-chain enters from the far end.
+    #[serde(default)]
+    pub reversed: bool,
+}
+
+impl PlacedDevice {
+    pub fn new(id: impl Into<String>, placement: Placement) -> Self {
+        Self {
+            id: id.into(),
+            placement,
+            enabled: true,
+            brightness: 100.0,
+            hue_shift: 0.0,
+            saturation: 100.0,
+            reversed: false,
+        }
+    }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_100() -> f32 {
+    100.0
 }
 
 /// Canvas-wide effect settings that persist with the layout.
@@ -304,48 +450,67 @@ pub struct CanvasLayout {
     pub devices: Vec<PlacedDevice>,
     #[serde(default)]
     pub settings: EffectSettings,
+    /// What is plugged along each ARGB header (SignalRGB "components").
+    #[serde(default)]
+    pub chains: Chains,
 }
 
 impl Default for CanvasLayout {
     fn default() -> Self {
-        // A desk-ish arrangement: strips framing top/bottom, keyboard center,
-        // GPU and RAM flanking (roughly where they live in a case to the side).
-        let place = |id: &str, x: f32, y: f32, scale: f32, rot: f32| PlacedDevice {
-            id: id.to_string(),
-            placement: Placement {
-                x,
-                y,
-                scale,
-                rotation_deg: rot,
-            },
-            enabled: true,
-        };
-        Self {
+        let mut layout = Self {
             version: 1,
-            devices: vec![
-                place(DEV_DLED1, 16.0, 6.0, 4.0, 0.0),
-                place(DEV_DLED2, 8.0, 76.0, 4.0, 0.0),
-                place(DEV_KEYBOARD, 50.0, 35.0, 4.0, 0.0),
-                place(DEV_GPU, 128.0, 42.0, 4.0, 0.0),
-                place(DEV_RAM0, 126.0, 12.0, 2.2, 0.0),
-                place(DEV_RAM1, 140.0, 12.0, 2.2, 0.0),
-            ],
+            devices: Vec::new(),
             settings: EffectSettings::default(),
-        }
+            chains: Chains::default(),
+        };
+        layout.reconcile();
+        layout
     }
 }
 
 impl CanvasLayout {
+    /// Default placement for a device id (desk-ish arrangement; chain
+    /// segments fan out in a row from their header's corner).
+    fn default_placement(&self, id: &str) -> Placement {
+        let place = |x: f32, y: f32, scale: f32| Placement {
+            x,
+            y,
+            scale,
+            rotation_deg: 0.0,
+        };
+        if let Some(rest) = id.strip_prefix("dled1.") {
+            let i: f32 = rest.parse().unwrap_or(0.0);
+            return place(10.0 + i * 26.0, 4.0, if self.chains.dled1.len() == 1 { 4.0 } else { 5.0 });
+        }
+        if let Some(rest) = id.strip_prefix("dled2.") {
+            let i: f32 = rest.parse().unwrap_or(0.0);
+            return place(10.0 + i * 26.0, 66.0, if self.chains.dled2.len() == 1 { 4.0 } else { 5.0 });
+        }
+        match id {
+            DEV_KEYBOARD => place(50.0, 35.0, 4.0),
+            DEV_GPU => place(128.0, 42.0, 4.0),
+            DEV_RAM0 => place(126.0, 12.0, 2.2),
+            DEV_RAM1 => place(140.0, 12.0, 2.2),
+            _ => place(70.0, 40.0, 3.0),
+        }
+    }
+
     /// Drop placements for unknown ids and add defaults for missing devices,
-    /// so layouts survive catalog changes.
+    /// so layouts survive catalog and chain-config changes.
     pub fn reconcile(&mut self) {
-        let defaults = CanvasLayout::default();
-        self.devices.retain(|d| spec_by_id(&d.id).is_some());
-        for def in &defaults.devices {
-            if !self.devices.iter().any(|d| d.id == def.id) {
-                self.devices.push(def.clone());
+        let specs = all_specs(&self.chains);
+        self.devices
+            .retain(|d| specs.iter().any(|s| s.id == d.id));
+        for spec in &specs {
+            if !self.devices.iter().any(|d| d.id == spec.id) {
+                let placement = self.default_placement(&spec.id);
+                self.devices.push(PlacedDevice::new(spec.id.clone(), placement));
             }
         }
+    }
+
+    pub fn spec(&self, id: &str) -> Option<LedSpec> {
+        spec_by_id(&self.chains, id)
     }
 
     pub fn device_mut(&mut self, id: &str) -> Option<&mut PlacedDevice> {
@@ -360,19 +525,28 @@ impl CanvasLayout {
 // ── sampling ─────────────────────────────────────────────────────────
 
 /// Per-LED colors for one placed device: transform each LED's local position
-/// through the placement, sample the frame, apply brightness.
+/// through the placement, sample the frame, then apply the device's own
+/// trim (brightness × global, hue shift, saturation).
 pub fn sample_device(
     frame: &Frame,
     spec: &LedSpec,
-    placement: &Placement,
-    brightness_pct: f32,
+    placed: &PlacedDevice,
+    global_brightness_pct: f32,
 ) -> Vec<[u8; 3]> {
-    let k = (brightness_pct / 100.0).clamp(0.0, 1.0);
+    let k = (global_brightness_pct / 100.0).clamp(0.0, 1.0)
+        * (placed.brightness / 100.0).clamp(0.0, 1.0);
+    let hue = placed.hue_shift;
+    let sat = (placed.saturation / 100.0).clamp(0.0, 2.0);
+    let trim_color = hue.abs() > 0.01 || (sat - 1.0).abs() > 0.01;
     spec.led_positions
         .iter()
         .map(|&p| {
-            let (cx, cy) = placement.to_canvas(spec.size, p);
-            let c = frame.sample(cx, cy);
+            let (cx, cy) = placed.placement.to_canvas(spec.size, p);
+            let mut c = frame.sample(cx, cy);
+            if trim_color {
+                let (h, s, v) = crate::canvas_effects::rgb_to_hsv(c);
+                c = crate::canvas_effects::hsv_to_rgb(h + hue, (s * sat).clamp(0.0, 1.0), v);
+            }
             [
                 (c[0] as f32 * k) as u8,
                 (c[1] as f32 * k) as u8,
@@ -387,10 +561,10 @@ pub fn sample_device(
 pub fn average_device_color(
     frame: &Frame,
     spec: &LedSpec,
-    placement: &Placement,
-    brightness_pct: f32,
+    placed: &PlacedDevice,
+    global_brightness_pct: f32,
 ) -> [u8; 3] {
-    let colors = sample_device(frame, spec, placement, brightness_pct);
+    let colors = sample_device(frame, spec, placed, global_brightness_pct);
     if colors.is_empty() {
         return [0, 0, 0];
     }
@@ -514,21 +688,65 @@ mod tests {
     fn layout_reconcile_fills_missing_and_drops_unknown() {
         let mut layout = CanvasLayout {
             version: 1,
-            devices: vec![PlacedDevice {
-                id: "bogus".to_string(),
-                placement: Placement {
+            devices: vec![PlacedDevice::new(
+                "bogus",
+                Placement {
                     x: 0.0,
                     y: 0.0,
                     scale: 1.0,
                     rotation_deg: 0.0,
                 },
-                enabled: true,
-            }],
+            )],
             settings: EffectSettings::default(),
+            chains: Chains::default(),
         };
         layout.reconcile();
         assert!(layout.device("bogus").is_none());
-        assert_eq!(layout.devices.len(), all_specs().len());
+        assert_eq!(layout.devices.len(), all_specs(&layout.chains).len());
+    }
+
+    #[test]
+    fn chain_split_reconciles_segment_devices() {
+        let mut layout = CanvasLayout::default();
+        assert!(layout.device("dled1.0").is_some());
+        assert!(layout.device("dled1.1").is_none());
+
+        // Split header 1 into 4 fans: 4 placeable devices, LEDs conserved.
+        layout.chains.set_fans(CHAIN_DLED1, 4);
+        layout.reconcile();
+        for i in 0..4 {
+            let id = format!("dled1.{i}");
+            let spec = layout.spec(&id).expect("fan spec");
+            assert!(spec.is_fan);
+            assert!(layout.device(&id).is_some(), "{id} missing");
+        }
+        let total: usize = layout
+            .chains
+            .dled1
+            .iter()
+            .map(|s| s.leds as usize)
+            .sum();
+        assert_eq!(total, dled1_count() as usize);
+
+        // Back to a single strip: fan devices dropped.
+        layout.chains.set_fans(CHAIN_DLED1, 0);
+        layout.reconcile();
+        assert!(layout.device("dled1.1").is_none());
+        assert!(!layout.spec("dled1.0").unwrap().is_fan);
+    }
+
+    #[test]
+    fn fan_spec_ring_geometry() {
+        let spec = fan_spec("f".into(), "Fan".into(), 12);
+        assert_eq!(spec.led_positions.len(), 12);
+        // LED 0 at 12 o'clock.
+        let (x0, y0) = spec.led_positions[0];
+        assert!((x0 - 2.0).abs() < 1e-4 && (y0 - 0.5).abs() < 1e-4);
+        // All on the ring.
+        for &(x, y) in &spec.led_positions {
+            let d = ((x - 2.0).powi(2) + (y - 2.0).powi(2)).sqrt();
+            assert!((d - 1.5).abs() < 1e-4);
+        }
     }
 
     #[test]
@@ -575,9 +793,33 @@ mod tests {
             scale: 2.0,
             rotation_deg: 0.0,
         };
-        let full = sample_device(&f, &spec, &pl, 100.0);
-        let half = sample_device(&f, &spec, &pl, 50.0);
+        let placed = PlacedDevice::new(DEV_GPU, pl);
+        let full = sample_device(&f, &spec, &placed, 100.0);
+        let half = sample_device(&f, &spec, &placed, 50.0);
         assert_eq!(full[0], [200, 100, 50]);
         assert_eq!(half[0], [100, 50, 25]);
+
+        // Per-device brightness stacks with global.
+        let mut dim = PlacedDevice::new(DEV_GPU, pl);
+        dim.brightness = 50.0;
+        let quarter = sample_device(&f, &spec, &dim, 50.0);
+        assert_eq!(quarter[0], [50, 25, 12]);
+
+        // Hue shift by 120° turns pure red into pure green.
+        for y in 0..f.height {
+            for x in 0..f.width {
+                f.set(x, y, [255, 0, 0]);
+            }
+        }
+        let mut shifted = PlacedDevice::new(DEV_GPU, pl);
+        shifted.hue_shift = 120.0;
+        let c = sample_device(&f, &spec, &shifted, 100.0);
+        assert_eq!(c[0], [0, 255, 0]);
+
+        // Saturation 0 washes to white.
+        let mut washed = PlacedDevice::new(DEV_GPU, pl);
+        washed.saturation = 0.0;
+        let c = sample_device(&f, &spec, &washed, 100.0);
+        assert_eq!(c[0], [255, 255, 255]);
     }
 }
