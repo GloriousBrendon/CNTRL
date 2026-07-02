@@ -17,6 +17,8 @@ The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`*
 
 > **Native-only:** CNTRL drives all hardware directly via `hidraw`/`i2c`. It does **not** depend on OpenRGB or any external tool.
 
+> **Fast keyboard path:** applies use the native Ace68 protocol client (`mchose_direct`, ~135 ms end-to-end) with the legacy capture-replay pipeline as automatic fallback; set `CNTRL_KB_LEGACY=1` to force the old path.
+
 ## If lighting stops working after an OS reinstall
 
 Almost always a **permissions** problem, not a device-ID change: a fresh install ships no udev rule, so `/dev/hidraw*` is root-only and CNTRL gets `Permission denied`. Diagnose and fix:
@@ -35,7 +37,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 The **Canvas** tab maps every device onto one virtual effect surface: each device declares its LED geometry (per-key for the keyboard, per-LED for the ARGB strips), you drag/rotate/scale devices to mirror your desk, and effects render onto the canvas while every LED samples the pixel underneath it — so one animation flows across strips, GPU and RAM in physical order. No browser engine, no external tools: effects are pure Rust functions and the sampler is the native equivalent of SignalRGB's `device.color(x, y)`.
 
 - **Demo effects:** Rainbow Wave, Plasma, Ripple, Comet, Aurora (`cntrl canvas --list`).
-- **Live streaming:** ITE D_LED1/D_LED2 strips get true per-LED frames (~20 fps); GPU gets a sampled zone color (never saved to its flash); Corsair RAM gets per-LED SMBus writes (rate-limited). The keyboard's vendor pipeline is too slow to stream, so it takes one-shot pushes (**Push to keyboard**).
+- **Live streaming:** the keyboard gets true **per-key** frames (native CZ protocol, ~7 ms/frame — up to 143 fps); ITE D_LED1/D_LED2 strips get per-LED frames; GPU gets a sampled zone color (never saved to its flash); Corsair RAM gets per-LED SMBus writes (rate-limited). When a stream stops, every device returns to its saved lighting.
 - **Arrangement:** drag devices on the Canvas tab; selection supports rotate (90°) and scale. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
 - **Headless:** `cntrl canvas --effect plasma --fps 20` streams with the saved layout; `--seconds N` for a timed run.
 
