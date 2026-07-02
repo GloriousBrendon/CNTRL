@@ -14,6 +14,7 @@ pub mod ipc;
 pub mod ite_rgb;
 pub mod keyboard_layout;
 pub mod lighting_modes;
+pub mod mchose_direct;
 pub mod mchose_lighting;
 pub mod persistence;
 pub mod profile;

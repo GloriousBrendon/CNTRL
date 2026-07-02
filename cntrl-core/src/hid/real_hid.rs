@@ -85,6 +85,18 @@ fn push_profile_lighting(profile: &ProfileDocument) -> Result<(), String> {
     let direct = cfg.direct != 0;
     let speed = None;
 
+    // Fast path: direct protocol client (~30 ms, no handshake). Falls back to
+    // the legacy capture-replay pipeline on any error. `CNTRL_KB_LEGACY=1`
+    // skips the fast path entirely.
+    if !legacy_forced() {
+        match fast_apply(eff, r, g, b, brightness_u8) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("cntrl: fast keyboard apply failed ({e}); using legacy pipeline");
+            }
+        }
+    }
+
     if eff == MODE_STATIC {
         return mchose_lighting::set_solid_rgb(r, g, b, 255, speed, direct);
     }
@@ -112,6 +124,32 @@ fn push_profile_lighting(profile: &ProfileDocument) -> Result<(), String> {
         MODE_CUSTOM,
         EFFECT_ID_OFF
     ))
+}
+
+fn legacy_forced() -> bool {
+    std::env::var("CNTRL_KB_LEGACY")
+        .map(|v| {
+            let t = v.trim();
+            t == "1" || t.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false)
+}
+
+/// Apply via `mchose_direct` (one settings read + 4 writes).
+fn fast_apply(eff: i32, r: u8, g: u8, b: u8, brightness: u8) -> Result<(), String> {
+    use crate::mchose_direct::Ace68Direct;
+
+    let mut dev = Ace68Direct::open()?;
+    if eff == MODE_STATIC || eff == MODE_CUSTOM || eff == 0 {
+        return dev.apply_solid(r, g, b);
+    }
+    if eff == EFFECT_ID_OFF {
+        return dev.apply_solid(0, 0, 0);
+    }
+    if lighting_modes::is_preset_effect_id(eff) {
+        return dev.apply_effect(eff as u8, r, g, b, brightness);
+    }
+    Err(format!("effect id {eff} not supported by fast path"))
 }
 
 /// `true`: lighting is pushed over USB on save (Linux). Other profile sections remain local.

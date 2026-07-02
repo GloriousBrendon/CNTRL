@@ -190,6 +190,10 @@ fn run_openrgb_prelude(dev: &hidapi::HidDevice) -> Result<(), String> {
     // fast apply for 0x5702 path in OpenRGB
     write_ite_packet(dev, &cc_report(0x28, 0xFF, 0x00))?;
     write_ite_packet(dev, &cc_report(0x31, 0x00, 0x00))?;
+    // Strip calibration/LED-count config, present in every OpenRGB bring-up
+    // (captures/openrgb/*_ite_1_3_0_payloads.txt): cc 32 1b + cc 34 10.
+    write_ite_packet(dev, &cc_report(0x32, 0x1B, 0x00))?;
+    write_ite_packet(dev, &cc_report(0x34, 0x10, 0x00))?;
     Ok(())
 }
 
@@ -436,7 +440,10 @@ impl IteDirect {
     }
 
     /// Push one frame of per-LED colors (RGB, canvas order) to both ARGB
-    /// strip headers, then latch with the 0x28 apply.
+    /// strip headers, then latch **only the two D_LED zones** — OpenRGB's
+    /// direct-mode sequence (strips → zone effect 0x23/0x24 → apply 0x18).
+    /// Applying with mask 0xFF instead re-renders the motherboard's own
+    /// zones every frame and the whole board strobes.
     pub fn write_strips(&self, dled1: &[[u8; 3]], dled2: &[[u8; 3]]) -> Result<(), String> {
         for (header, colors) in [(0x58u8, dled1), (0x59u8, dled2)] {
             if colors.is_empty() {
@@ -452,10 +459,22 @@ impl IteDirect {
                 write_ite_packet(&self.dev, &p)?;
             }
         }
+        // Zone effect (static, full brightness) for D_LED1 (zone 3, register
+        // 0x23, mask 0x08) and D_LED2 (zone 4, register 0x24, mask 0x10).
+        for (reg, mask) in [(0x23u8, 0x08u8), (0x24u8, 0x10u8)] {
+            let mut z = [0u8; 64];
+            z[0] = 0xCC;
+            z[1] = reg;
+            z[2] = mask;
+            z[11] = 0x01; // static effect type
+            z[12] = 0xFF; // max brightness
+            write_ite_packet(&self.dev, &z)?;
+        }
+        // Apply only the strip zones.
         let mut apply = [0u8; 64];
         apply[0] = 0xCC;
         apply[1] = 0x28;
-        apply[2] = 0xFF;
+        apply[2] = 0x18;
         write_ite_packet(&self.dev, &apply)
     }
 }

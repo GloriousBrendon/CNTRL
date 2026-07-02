@@ -113,11 +113,11 @@ fn load_effect_templates() -> (HashMap<u8, [u8; 64]>, HashMap<u8, [u8; 64]>) {
     (templates, zones)
 }
 
-static EFFECT_DATA: LazyLock<(HashMap<u8, [u8; 64]>, HashMap<u8, [u8; 64]>)> =
+pub(crate) static EFFECT_DATA: LazyLock<(HashMap<u8, [u8; 64]>, HashMap<u8, [u8; 64]>)> =
     LazyLock::new(load_effect_templates);
 
 /// Recompute the Mchose packet checksum: byte[3] = sum(bytes[4..64]) mod 256.
-fn recompute_checksum(pkt: &mut [u8; 64]) {
+pub(crate) fn recompute_checksum(pkt: &mut [u8; 64]) {
     pkt[3] = pkt[4..].iter().copied().fold(0u8, |a, b| a.wrapping_add(b));
 }
 
@@ -140,7 +140,7 @@ fn classify(r: i32, g: i32, b: i32) -> &'static str {
     }
 }
 
-fn profile_template(r: u8, g: u8, b: u8) -> [u8; 64] {
+pub(crate) fn profile_template(r: u8, g: u8, b: u8) -> [u8; 64] {
     let ir = r as i32;
     let ig = g as i32;
     let ib = b as i32;
@@ -159,7 +159,7 @@ fn profile_template(r: u8, g: u8, b: u8) -> [u8; 64] {
     t
 }
 
-fn zone_template(r: u8, g: u8, b: u8) -> [u8; 64] {
+pub(crate) fn zone_template(r: u8, g: u8, b: u8) -> [u8; 64] {
     let nz = (r > 0) as u8 + (g > 0) as u8 + (b > 0) as u8;
     let mut z = if nz >= 2 {
         *ZONE_MULTI
@@ -170,7 +170,7 @@ fn zone_template(r: u8, g: u8, b: u8) -> [u8; 64] {
     z
 }
 
-fn build_apply_a(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [u8; 64] {
+pub(crate) fn build_apply_a(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [u8; 64] {
     let mut a = *aa05;
     a[0] = 0x55;
     a[1] = 0x06;
@@ -189,7 +189,7 @@ fn build_apply_a(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [
     a
 }
 
-fn build_apply_b(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [u8; 64] {
+pub(crate) fn build_apply_b(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [u8; 64] {
     let mut b = [0u8; 64];
     b[0..8].copy_from_slice(&[0x55, 0x06, 0x00, 0x00, 0x38, 0x08, 0x00, 0x00]);
     let tail = &aa05[16..];
@@ -207,7 +207,7 @@ fn build_apply_b(aa05: &[u8; 64], rgb: (u8, u8, u8), effect_id: Option<u8>) -> [
     b
 }
 
-fn effect_profile_packet(
+pub(crate) fn effect_profile_packet(
     effect_id: u8,
     r: u8,
     g: u8,

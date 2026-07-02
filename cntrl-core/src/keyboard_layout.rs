@@ -77,6 +77,24 @@ pub fn get_keyboard_layout() -> Vec<Key> {
     ]
 }
 
+/// HID usage code for each key, aligned with `get_keyboard_layout()` order.
+/// Left/right modifiers are distinguished by position (225/229 = L/R Shift,
+/// 224/228 = L/R Ctrl, 226/230 = L/R Alt, 227 = Win).
+pub fn hid_usage_codes() -> [u16; 63] {
+    [
+        // Row 0: Esc 1..0 - = Bksp
+        41, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 45, 46, 42,
+        // Row 1: Tab Q W E R T Y U I O P [ ] \
+        43, 20, 26, 8, 21, 23, 28, 24, 12, 18, 19, 47, 48, 49,
+        // Row 2: Caps A S D F G H J K L ; ' Enter
+        57, 4, 22, 7, 9, 10, 11, 13, 14, 15, 51, 52, 40,
+        // Row 3: LShift Z X C V B N M , . / RShift Up
+        225, 29, 27, 6, 25, 5, 17, 16, 54, 55, 56, 229, 82,
+        // Row 4: LCtrl Win LAlt Space RAlt RCtrl Left Down Right
+        224, 227, 226, 44, 230, 228, 80, 81, 79,
+    ]
+}
+
 /// Hit-test in widget pixel space (`width` × `height`), same math as GTK `key_index_at`.
 pub fn key_index_at(width: f32, height: f32, x: f32, y: f32) -> Option<usize> {
     if width <= 0.0 || height <= 0.0 {

@@ -4,10 +4,10 @@
 //! FPS, samples every enabled placed device, and pushes colors over the
 //! device-native fast paths (persistent sessions — devices are opened once):
 //!
+//! - Keyboard (Ace68-II): true per-key live frames (0xDD, ~7 ms/frame)
 //! - ITE ARGB strips: true per-LED frames (D_LED1/D_LED2 headers)
 //! - GPU (Fusion2 i2c): sampled zone color, change-detected, never saved to flash
 //! - Corsair RAM: per-LED SMBus block writes, rate-limited (PIIX4 is slow)
-//! - Keyboard: excluded — its apply pipeline takes seconds (one-shot push only)
 //!
 //! The UI edits `StreamShared` under the mutex; the worker picks changes up on
 //! the next frame. Effects are pure functions of time, so the on-screen
@@ -93,6 +93,8 @@ pub fn start(layout: CanvasLayout) -> StreamHandle {
 /// Per-backend sessions, opened lazily so one blocked device doesn't kill the
 /// whole stream; a failed backend is reported and skipped.
 struct Sessions {
+    kb: Option<crate::mchose_direct::Ace68Direct>,
+    kb_err: Option<String>,
     ite: Option<crate::ite_rgb::IteDirect>,
     ite_err: Option<String>,
     gpu: Option<crate::gpu_rgb::GpuDirect>,
@@ -105,6 +107,11 @@ struct Sessions {
 impl Sessions {
     fn describe(&self) -> String {
         let mut parts = Vec::new();
+        match (&self.kb, &self.kb_err) {
+            (Some(s), _) => parts.push(format!("keyboard ok ({})", s.path())),
+            (None, Some(e)) => parts.push(format!("keyboard: {e}")),
+            _ => {}
+        }
         match (&self.ite, &self.ite_err) {
             (Some(s), _) => parts.push(format!("strips ok ({})", s.path())),
             (None, Some(e)) => parts.push(format!("strips: {e}")),
@@ -131,6 +138,8 @@ fn worker(
 ) {
     let mut frame = Frame::canvas_sized();
     let mut sessions = Sessions {
+        kb: None,
+        kb_err: None,
         ite: None,
         ite_err: None,
         gpu: None,
@@ -139,6 +148,8 @@ fn worker(
         ram_err: None,
         ram_last_write: Instant::now() - RAM_MIN_INTERVAL,
     };
+    // LED slot per layout key (constant; computed once).
+    let kb_slots = crate::mchose_direct::layout_led_indices();
     let t0 = Instant::now();
     let mut frames: u64 = 0;
     let mut fps_window = Instant::now();
@@ -157,6 +168,29 @@ fn worker(
         canvas_effects::render(s.effect, &mut frame, t, &params);
 
         let mut frame_err: Option<String> = None;
+
+        // ── Keyboard: per-key live frame (0xDD) every tick ──
+        if let Some(colors) = sample_if_enabled(&frame, &layout, canvas::DEV_KEYBOARD, s.brightness)
+        {
+            if sessions.kb.is_none() && sessions.kb_err.is_none() {
+                match crate::mchose_direct::Ace68Direct::open() {
+                    Ok(s) => sessions.kb = Some(s),
+                    Err(e) => sessions.kb_err = Some(e),
+                }
+            }
+            if let Some(kb) = &mut sessions.kb {
+                let mut wire = [[0u8; 3]; crate::mchose_direct::LIVE_FRAME_SLOTS];
+                for (key, color) in colors.iter().enumerate() {
+                    if let Some(Some(slot)) = kb_slots.get(key) {
+                        wire[*slot] = *color;
+                    }
+                }
+                if let Err(e) = kb.write_live_frame(&wire) {
+                    frame_err = Some(format!("keyboard: {e}"));
+                    sessions.kb = None;
+                }
+            }
+        }
 
         // ── ITE ARGB strips: per-LED every frame ──
         let dled1 = sample_if_enabled(&frame, &layout, canvas::DEV_DLED1, s.brightness);
@@ -246,6 +280,39 @@ fn worker(
             std::thread::sleep(target - spent);
         }
     }
+
+    // Stream ended: the keyboard reverts to its saved effect by itself; the
+    // PC backends don't — they'd stay frozen on the last streamed frame (and
+    // the ITE bring-up reset the motherboard zones). Re-apply each streamed
+    // backend's saved state.
+    let states = crate::device_state::load();
+    if sessions.ite.is_some() {
+        drop(sessions.ite.take());
+        if let Some(state) = states.get("ite_rgb") {
+            let doc = crate::device_state::doc_for(state);
+            if let Err(e) = crate::ite_rgb::apply_profile(&doc) {
+                eprintln!("canvas: ite restore after stream failed: {e}");
+            }
+        }
+    }
+    if sessions.gpu.is_some() {
+        drop(sessions.gpu.take());
+        if let Some(state) = states.get("gpu_rgb") {
+            let doc = crate::device_state::doc_for(state);
+            if let Err(e) = crate::gpu_rgb::apply_profile(&doc) {
+                eprintln!("canvas: gpu restore after stream failed: {e}");
+            }
+        }
+    }
+    if sessions.ram.is_some() {
+        drop(sessions.ram.take());
+        if let Some(state) = states.get("corsair_ram") {
+            let doc = crate::device_state::doc_for(state);
+            if let Err(e) = crate::corsair_ram::apply_profile(&doc) {
+                eprintln!("canvas: ram restore after stream failed: {e}");
+            }
+        }
+    }
 }
 
 fn sample_if_enabled(
@@ -278,8 +345,9 @@ fn average_if_enabled(
     ))
 }
 
-/// One-shot: sample the keyboard's placement at time `t` and run the solid
-/// apply pipeline once (the keyboard protocol is far too slow to stream).
+/// One-shot: sample the keyboard's placement at time `t` and persist the
+/// average as a solid color (unlike the live stream, this survives after
+/// streaming stops — the keyboard reverts to it as its saved effect).
 pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], String> {
     let placed = layout
         .device(canvas::DEV_KEYBOARD)
@@ -295,6 +363,15 @@ pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], 
     };
     canvas_effects::render(s.effect, &mut frame, t, &params);
     let avg = canvas::average_device_color(&frame, &spec, &placed.placement, s.brightness);
-    crate::mchose_lighting::set_solid_rgb(avg[0], avg[1], avg[2], 255, None, false)?;
+    // Fast protocol client first; legacy replay pipeline as fallback.
+    match crate::mchose_direct::Ace68Direct::open()
+        .and_then(|mut d| d.apply_solid(avg[0], avg[1], avg[2]))
+    {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("canvas: fast keyboard push failed ({e}); using legacy pipeline");
+            crate::mchose_lighting::set_solid_rgb(avg[0], avg[1], avg[2], 255, None, false)?;
+        }
+    }
     Ok(avg)
 }

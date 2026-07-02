@@ -80,7 +80,7 @@ pub fn remember(backends: &[String], hex: &str, effect: i32, brightness: i32, sp
     }
 }
 
-fn doc_for(state: &LightState) -> crate::profile::ProfileDocument {
+pub(crate) fn doc_for(state: &LightState) -> crate::profile::ProfileDocument {
     let mut doc = crate::profile::default_profile_document();
     doc.data.light.config.hex_color = state.hex.clone();
     doc.data.light.config.effect = state.effect;

@@ -167,7 +167,8 @@ fn keyboard_spec() -> LedSpec {
         name: "Keyboard",
         size: (15.0, 5.0),
         led_positions,
-        streamable: false,
+        // Per-key live frames via the 0xDD protocol (mchose_direct).
+        streamable: true,
     }
 }
 
