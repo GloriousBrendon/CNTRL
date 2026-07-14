@@ -198,18 +198,22 @@ fn run_openrgb_prelude(dev: &hidapi::HidDevice) -> Result<(), String> {
 }
 
 fn send_openrgb_static_effect(dev: &hidapi::HidDevice, r: u8, g: u8, b: u8) -> Result<(), String> {
-    // OpenRGB PktEffect(led=-1, mode=static) for 0x5702:
-    // report=CC, header=20, zone0=FF, effect_type=1, max_brightness=FF, color0=BGR.
-    let mut effect = [0u8; 64];
-    effect[0] = 0xCC; // report id
-    effect[1] = 0x20; // all zones header
-    effect[2] = 0xFF; // zone0 bitmask (low byte, little-endian u32)
-    effect[11] = 0x01; // static effect
-    effect[12] = 0xFF; // max brightness
-    effect[14] = b; // color0 blue (BGR32 little-endian)
-    effect[15] = g; // color0 green
-    effect[16] = r; // color0 red
-    write_ite_packet(dev, &effect)?;
+    // The firmware keeps a per-zone effect config: writing register 0x20
+    // with an all-zones mask only configures zone 0, so zones like the 12V
+    // RGB header never picked up solid applies. Mirror OpenRGB's all-zones
+    // loop instead: one effect packet per zone register, then one apply.
+    for zone in 0u8..=5 {
+        let mut effect = [0u8; 64];
+        effect[0] = 0xCC; // report id
+        effect[1] = 0x20 + zone; // per-zone effect register
+        effect[2] = 1 << zone; // this zone's bitmask (low byte, LE u32)
+        effect[11] = 0x01; // static effect
+        effect[12] = 0xFF; // max brightness
+        effect[14] = b; // color0 blue (BGR32 little-endian)
+        effect[15] = g; // color0 green
+        effect[16] = r; // color0 red
+        write_ite_packet(dev, &effect)?;
+    }
 
     // OpenRGB ApplyEffect(false): command 0x28 with zone mask.
     let mut apply = [0u8; 64];
