@@ -31,7 +31,6 @@ pub fn render_preview(layout: &CanvasLayout, t: f32) -> Handle {
 /// The interactive arrangement scene (backdrop + draggable device boxes).
 pub struct Scene<'a> {
     pub layout: &'a CanvasLayout,
-    pub preview: &'a Handle,
     pub selected: Option<&'a str>,
     pub colors: &'a ThemeColors,
 }
@@ -48,6 +47,15 @@ struct Drag {
     dx: f32,
     dy: f32,
     moved: bool,
+}
+
+/// Stable identifying color for a device: golden-angle hue by index, so
+/// every border on the canvas is visually distinct (matches the chip list
+/// order). Selection still overrides with the theme accent.
+pub fn device_color(index: usize) -> Color {
+    let hue = (index as f32 * 137.5) % 360.0;
+    let [r, g, b] = cntrl_core::canvas_effects::hsv_to_rgb(hue, 0.75, 1.0);
+    Color::from_rgb8(r, g, b)
 }
 
 /// Map widget bounds → (pixels-per-unit, top-left offset) letterboxing the
@@ -129,15 +137,14 @@ impl icanvas::Program<Message> for Scene<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Vec<icanvas::Geometry> {
-        let mut f = icanvas::Frame::new(renderer, bounds.size());
         let (ppu, o) = viewport(bounds);
         let area = Rectangle::new(o, iced::Size::new(CANVAS_W * ppu, CANVAS_H * ppu));
 
-        // Effect backdrop.
-        f.draw_image(
-            area,
-            icanvas::Image::new(self.preview.clone()).filter_method(FilterMethod::Linear),
-        );
+        // NOTE: the effect backdrop is a separate `image` widget stacked
+        // UNDER this canvas (see `scene_element`) — image primitives drawn
+        // inside a canvas frame always composite above its meshes, which
+        // hid every device shape behind the backdrop.
+        let mut f = icanvas::Frame::new(renderer, bounds.size());
         // Frame line around the canvas area.
         f.stroke_rectangle(
             area.position(),
@@ -150,25 +157,36 @@ impl icanvas::Program<Message> for Scene<'_> {
         let accent = hexc(&self.colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
         let to_px = |unit: (f32, f32)| Point::new(o.x + unit.0 * ppu, o.y + unit.1 * ppu);
 
-        for d in &self.layout.devices {
+        for (dev_index, d) in self.layout.devices.iter().enumerate() {
             let Some(spec) = self.layout.spec(&d.id) else {
                 continue;
             };
             let pl = &d.placement;
             let selected = self.selected == Some(d.id.as_str());
-            let dim = if d.enabled { 0.28 } else { 0.55 };
-            let outline_color = if selected {
+            // Devices read as physical objects: strong fill so the silhouette
+            // stands out against the moving effect, a dark chassis outline,
+            // and the device's identifying color as the inner line.
+            let fill = Color::from_rgba(0.02, 0.02, 0.05, if d.enabled { 0.5 } else { 0.75 });
+            let ident = device_color(dev_index);
+            let line_color = if selected {
                 accent
+            } else if d.enabled {
+                ident
             } else {
-                Color::from_rgba(1.0, 1.0, 1.0, if d.enabled { 0.55 } else { 0.25 })
+                Color::from_rgba(ident.r, ident.g, ident.b, 0.4)
             };
-            let outline = icanvas::Stroke::default()
-                .with_color(outline_color)
-                .with_width(if selected { 2.5 } else { 1.0 });
+            // Bright halo + colored core: readable over dark AND saturated
+            // effect backdrops alike.
+            let chassis = icanvas::Stroke::default()
+                .with_color(Color::from_rgba(1.0, 1.0, 1.0, if d.enabled { 0.9 } else { 0.35 }))
+                .with_width(if selected { 7.0 } else { 6.0 });
+            let line = icanvas::Stroke::default()
+                .with_color(line_color)
+                .with_width(if selected { 4.0 } else { 3.0 });
 
+            let center = to_px(pl.to_canvas(spec.size, (spec.size.0 / 2.0, spec.size.1 / 2.0)));
             let shape = if spec.is_fan {
-                // Fan: circular outline around the LED ring.
-                let center = to_px(pl.to_canvas(spec.size, (spec.size.0 / 2.0, spec.size.1 / 2.0)));
+                // Fan: circular frame around the LED ring.
                 let radius = spec.size.0 / 2.0 * pl.scale * ppu;
                 icanvas::Path::circle(center, radius)
             } else {
@@ -187,8 +205,20 @@ impl icanvas::Program<Message> for Scene<'_> {
                     b.close();
                 })
             };
-            f.fill(&shape, Color::from_rgba(0.0, 0.0, 0.0, dim));
-            f.stroke(&shape, outline);
+            f.fill(&shape, fill);
+            f.stroke(&shape, chassis);
+            f.stroke(&shape, line);
+            if spec.is_fan {
+                // Hub in the middle so fans look like fans.
+                let hub = icanvas::Path::circle(center, spec.size.0 * 0.16 * pl.scale * ppu);
+                f.fill(&hub, Color::from_rgba(0.0, 0.0, 0.0, 0.6));
+                f.stroke(
+                    &hub,
+                    icanvas::Stroke::default()
+                        .with_color(line_color)
+                        .with_width(1.5),
+                );
+            }
 
             // LED dots: each LED's actual sampling point. The chain's first
             // LED is drawn in accent so backwards wiring is easy to spot
@@ -214,17 +244,27 @@ impl icanvas::Program<Message> for Scene<'_> {
             if d.reversed {
                 label.push_str(" ⇄");
             }
+            // Label sits just above the shape, in the device's border color,
+            // so shape and name read as one unit without covering the LEDs.
+            let top = spec
+                .led_positions
+                .iter()
+                .chain([(spec.size.0 / 2.0, 0.0)].iter())
+                .map(|&p| to_px(pl.to_canvas(spec.size, p)).y)
+                .fold(f32::INFINITY, f32::min);
             f.fill_text(icanvas::Text {
                 content: label,
-                position: Point::new(center.x, center.y),
-                color: if d.enabled {
-                    Color::WHITE
+                position: Point::new(center.x, top - 6.0),
+                color: if selected {
+                    accent
+                } else if d.enabled {
+                    ident
                 } else {
-                    Color::from_rgba(1.0, 1.0, 1.0, 0.5)
+                    Color::from_rgba(ident.r, ident.g, ident.b, 0.5)
                 },
                 size: 12.0.into(),
                 align_x: iced::widget::text::Alignment::Center,
-                align_y: iced::alignment::Vertical::Center,
+                align_y: iced::alignment::Vertical::Bottom,
                 ..icanvas::Text::default()
             });
         }
@@ -264,22 +304,29 @@ impl icanvas::Program<Message> for Scene<'_> {
     }
 }
 
-/// Build the scene element (the caller wraps it with the controls).
+/// Build the scene element: the effect backdrop as an `image` widget with
+/// the interactive device overlay canvas stacked on top. `ContentFit::Contain`
+/// letterboxes the image exactly like `viewport()` does for the overlay, so
+/// the two layers stay aligned at any widget size.
 pub fn scene_element<'a>(
     layout: &'a CanvasLayout,
     preview: &'a Handle,
     selected: Option<&'a str>,
     colors: &'a ThemeColors,
 ) -> Element<'a, Message> {
-    Canvas::new(Scene {
+    let backdrop = iced::widget::image(preview.clone())
+        .content_fit(iced::ContentFit::Contain)
+        .filter_method(FilterMethod::Linear)
+        .width(Length::Fill)
+        .height(Length::Fill);
+    let overlay = Canvas::new(Scene {
         layout,
-        preview,
         selected,
         colors,
     })
     .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    .height(Length::Fill);
+    iced::widget::stack![backdrop, overlay].into()
 }
 
 /// Convenience: pretty spec list in stable order (used by the enable chips).

@@ -590,6 +590,8 @@ pub(crate) enum Message {
     CanvasPushKeyboardDone(Result<(u8, u8, u8), String>),
     /// Configure an ARGB header's daisy chain: 0 = single strip, n = n fans.
     CanvasChainFans(&'static str, u8),
+    /// Set LEDs per fan for every fan on a header (8 = AR120, 12/16 common).
+    CanvasChainFanLeds(&'static str, u8),
     // Per-element trim on the selected device.
     CanvasDevBrightness(f32),
     CanvasDevHue(f32),
@@ -939,6 +941,13 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 Ok((r, g, b)) => format!("Keyboard set to #{r:02x}{g:02x}{b:02x}"),
                 Err(e) => format!("Keyboard push failed: {e}"),
             };
+            Task::none()
+        }
+        Message::CanvasChainFanLeds(header, leds) => {
+            app.canvas_layout.chains.set_fan_leds(header, leds);
+            app.canvas_layout.reconcile();
+            app.sync_stream();
+            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasChainFans(header, n) => {
@@ -1516,28 +1525,54 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(18);
 
-    // ── device chips: toggle each device's canvas participation ──
+    // ── device chips: toggle each device's canvas participation. Each chip
+    // carries the same identifying color as the device's border on the canvas ──
     let mut chips = row![].spacing(8);
-    for (id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
+    for (i, (id, spec, enabled)) in canvas_tab::placed_specs(&app.canvas_layout)
+        .into_iter()
+        .enumerate()
+    {
         // Compact names so a fully split chain still fits on one row.
         let label = spec
             .name
             .replace("ARGB Header ", "Header ")
             .replace("Header 1 ", "H1 ")
             .replace("Header 2 ", "H2 ");
+        let ident = canvas_tab::device_color(i);
         chips = chips.push(
-            button(text(label).size(12))
-                .on_press(Message::CanvasToggleEnabled(id))
-                .padding([7, 10])
-                .style(segment_style(colors, enabled)),
+            button(
+                row![
+                    container(Space::new().width(8).height(8)).style(move |_| {
+                        container::Style {
+                            background: Some(ident.into()),
+                            border: iced::Border {
+                                radius: 4.0.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }
+                    }),
+                    text(label).size(12),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            )
+            .on_press(Message::CanvasToggleEnabled(id))
+            .padding([7, 10])
+            .style(segment_style(colors, enabled)),
         );
     }
 
-    // ── ARGB header chains: what's daisy-chained on each header ──
+    // ── ARGB header chains: what's daisy-chained on each header, and how
+    // many LEDs each fan has (AR120 = 8; most rings are 12 or 16) ──
     let chain_row = |header: &'static str, label: &'static str| {
         let segs = app.canvas_layout.chains.header(header);
         let fans = segs.iter().filter(|s| s.kind == cntrl_core::canvas::SegmentKind::Fan).count() as u8;
         let is_strip = fans == 0;
+        let fan_leds = segs
+            .iter()
+            .find(|s| s.kind == cntrl_core::canvas::SegmentKind::Fan)
+            .map(|s| s.leds);
         let mut r = row![text(label).size(12).color(muted(&app.colors))].spacing(6);
         r = r.push(
             button(text("Strip").size(11))
@@ -1552,6 +1587,17 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
                     .padding([5, 9])
                     .style(segment_style(&app.colors, fans == n)),
             );
+        }
+        if let Some(cur) = fan_leds {
+            r = r.push(text("·").size(11).color(muted(&app.colors)));
+            for leds in [8u8, 12, 16] {
+                r = r.push(
+                    button(text(format!("{leds}/fan")).size(11))
+                        .on_press(Message::CanvasChainFanLeds(header, leds))
+                        .padding([5, 9])
+                        .style(segment_style(&app.colors, cur == leds)),
+                );
+            }
         }
         r.align_y(Alignment::Center)
     };

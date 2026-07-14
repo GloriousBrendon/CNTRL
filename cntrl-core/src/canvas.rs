@@ -165,6 +165,20 @@ impl Chains {
         }
     }
 
+    /// Set every fan on `header` to `leds` LEDs (e.g. 8 for Corsair AR120,
+    /// 12 or 16 for most other ARGB rings).
+    pub fn set_fan_leds(&mut self, header: &str, leds: u8) {
+        let segments = match header {
+            CHAIN_DLED1 => &mut self.dled1,
+            _ => &mut self.dled2,
+        };
+        for seg in segments.iter_mut() {
+            if seg.kind == SegmentKind::Fan {
+                seg.leds = leds.max(1);
+            }
+        }
+    }
+
     /// Split a header's total LEDs into `n` equal fans (remainder goes to
     /// the last fan), or back to a single strip with `n == 0`.
     pub fn set_fans(&mut self, header: &str, n: u8) {
