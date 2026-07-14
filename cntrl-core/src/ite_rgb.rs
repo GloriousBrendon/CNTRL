@@ -401,6 +401,19 @@ pub struct IteDirect {
     dev: hidapi::HidDevice,
     order: [usize; 3],
     path: String,
+    /// Last color sent to the 12V RGB zone (skip the bus when unchanged).
+    rgb12v_last: Option<(u8, u8, u8)>,
+}
+
+/// Zone index of the 12V non-addressable RGB header (identified by lighting
+/// each zone a different color on this board). Override with
+/// `CNTRL_ITE_RGB12V_ZONE` for other boards.
+fn rgb12v_zone() -> u8 {
+    std::env::var("CNTRL_ITE_RGB12V_ZONE")
+        .ok()
+        .and_then(|s| s.trim().parse::<u8>().ok())
+        .filter(|z| *z <= 7)
+        .unwrap_or(2)
 }
 
 impl IteDirect {
@@ -432,6 +445,7 @@ impl IteDirect {
             dev,
             order: parse_strip_color_order(),
             path: selected.path.clone(),
+            rgb12v_last: None,
         })
     }
 
@@ -444,7 +458,12 @@ impl IteDirect {
     /// direct-mode sequence (strips → zone effect 0x23/0x24 → apply 0x18).
     /// Applying with mask 0xFF instead re-renders the motherboard's own
     /// zones every frame and the whole board strobes.
-    pub fn write_strips(&self, dled1: &[[u8; 3]], dled2: &[[u8; 3]]) -> Result<(), String> {
+    pub fn write_strips(
+        &mut self,
+        dled1: &[[u8; 3]],
+        dled2: &[[u8; 3]],
+        rgb12v: Option<[u8; 3]>,
+    ) -> Result<(), String> {
         for (header, colors) in [(0x58u8, dled1), (0x59u8, dled2)] {
             if colors.is_empty() {
                 continue;
@@ -470,11 +489,31 @@ impl IteDirect {
             z[12] = 0xFF; // max brightness
             write_ite_packet(&self.dev, &z)?;
         }
-        // Apply only the strip zones.
+        // 12V RGB header zone: single color, only touched when it changes.
+        let mut apply_mask = 0x18u8;
+        if let Some(c) = rgb12v {
+            let zone = rgb12v_zone();
+            if self.rgb12v_last != Some((c[0], c[1], c[2])) {
+                let mut z = [0u8; 64];
+                z[0] = 0xCC;
+                z[1] = 0x20 + zone;
+                z[2] = 1 << zone;
+                z[11] = 0x01; // static
+                z[12] = 0xFF; // brightness
+                z[14] = c[2]; // BGR color0
+                z[15] = c[1];
+                z[16] = c[0];
+                write_ite_packet(&self.dev, &z)?;
+                self.rgb12v_last = Some((c[0], c[1], c[2]));
+                apply_mask |= 1 << zone;
+            }
+        }
+        // Latch only the zones we touched (0xFF would re-render the
+        // motherboard's other zones every frame and strobe the board).
         let mut apply = [0u8; 64];
         apply[0] = 0xCC;
         apply[1] = 0x28;
-        apply[2] = 0x18;
+        apply[2] = apply_mask;
         write_ite_packet(&self.dev, &apply)
     }
 }

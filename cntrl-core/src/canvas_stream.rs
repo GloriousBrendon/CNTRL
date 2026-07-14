@@ -193,21 +193,24 @@ fn worker(
         }
 
         // ── ITE ARGB headers: assemble each daisy chain from its placed
-        // segments (fans/strips) in chain order, honoring per-device reverse ──
+        // segments (fans/strips) in chain order, honoring per-device reverse.
+        // The 12V RGB header rides along as a single averaged color ──
         let dled1 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED1, s.brightness);
         let dled2 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED2, s.brightness);
-        if dled1.is_some() || dled2.is_some() {
+        let rgb12v = average_if_enabled(&frame, &layout, canvas::DEV_RGB12V, s.brightness);
+        if dled1.is_some() || dled2.is_some() || rgb12v.is_some() {
             if sessions.ite.is_none() && sessions.ite_err.is_none() {
                 match crate::ite_rgb::IteDirect::open() {
                     Ok(s) => sessions.ite = Some(s),
                     Err(e) => sessions.ite_err = Some(e),
                 }
             }
-            if let Some(ite) = &sessions.ite {
+            if let Some(ite) = &mut sessions.ite {
                 let empty: Vec<[u8; 3]> = Vec::new();
                 let r = ite.write_strips(
                     dled1.as_deref().unwrap_or(&empty),
                     dled2.as_deref().unwrap_or(&empty),
+                    rgb12v,
                 );
                 if let Err(e) = r {
                     frame_err = Some(format!("strips: {e}"));

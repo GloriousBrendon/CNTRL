@@ -105,6 +105,9 @@ pub const CHAIN_DLED2: &str = "dled2";
 pub const DEV_GPU: &str = "gpu";
 pub const DEV_RAM0: &str = "ram0";
 pub const DEV_RAM1: &str = "ram1";
+/// 12V non-addressable RGB header (ITE zone 2) — one color for the whole
+/// device, sampled as the average under its box.
+pub const DEV_RGB12V: &str = "rgb12v";
 
 /// LED geometry of one device in its own local units, SignalRGB-style:
 /// `size` is the bounding box, `led_positions` one `[x,y]` per LED in order.
@@ -231,6 +234,7 @@ pub fn all_specs(chains: &Chains) -> Vec<LedSpec> {
     out.push(gpu_spec());
     out.push(ram_spec(DEV_RAM0, "RAM 1"));
     out.push(ram_spec(DEV_RAM1, "RAM 2"));
+    out.push(rgb12v_spec());
     out
 }
 
@@ -316,6 +320,21 @@ fn gpu_spec() -> LedSpec {
         name: "GPU".to_string(),
         size: (6.0, 3.0),
         led_positions: vec![(3.0, 1.5)],
+        is_fan: false,
+        streamable: true,
+    }
+}
+
+/// 12V RGB header: whole strip is one color — a handful of sample points
+/// along the box, averaged.
+fn rgb12v_spec() -> LedSpec {
+    let n = 5usize;
+    let led_positions = (0..n).map(|i| (i as f32 * 2.0 + 1.0, 0.75)).collect();
+    LedSpec {
+        id: DEV_RGB12V.to_string(),
+        name: "RGB 12V".to_string(),
+        size: (10.0, 1.5),
+        led_positions,
         is_fan: false,
         streamable: true,
     }
@@ -505,6 +524,7 @@ impl CanvasLayout {
             DEV_GPU => place(128.0, 42.0, 4.0),
             DEV_RAM0 => place(126.0, 12.0, 2.2),
             DEV_RAM1 => place(140.0, 12.0, 2.2),
+            DEV_RGB12V => place(118.0, 60.0, 3.0),
             _ => place(70.0, 40.0, 3.0),
         }
     }
