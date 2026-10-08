@@ -179,9 +179,9 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 ### Checkpoint E: dynamic canvas
 
 ### Phase 7: Ready to publish
-- [ ] Task 35: Only show hardware that is present
+- [x] Task 35: Only show hardware that is present
 - [ ] Task 36: Repo clean-up for publishing
-- [ ] Task 37: README, supported hardware list, CI
+- [x] Task 37: README, supported hardware list, CI
 
 ### Checkpoint: Complete
 

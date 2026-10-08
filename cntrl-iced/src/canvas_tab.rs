@@ -72,7 +72,7 @@ fn to_units(bounds: Rectangle, p: Point) -> (f32, f32) {
 
 /// Topmost device under a canvas-unit point (reverse draw order).
 fn hit_test(layout: &CanvasLayout, unit: (f32, f32)) -> Option<&canvas::PlacedDevice> {
-    layout.devices.iter().rev().find(|d| {
+    layout.devices.iter().rev().filter(|d| d.present).find(|d| {
         layout
             .spec(&d.id)
             .is_some_and(|spec| d.placement.contains(spec.size, unit))
@@ -156,7 +156,8 @@ impl icanvas::Program<Message> for Scene<'_> {
         let to_px = |unit: (f32, f32)| Point::new(o.x + unit.0 * ppu, o.y + unit.1 * ppu);
 
         for (dev_index, d) in self.layout.devices.iter().enumerate() {
-            let Some(spec) = self.layout.spec(&d.id) else {
+            // Hardware that isn't there is not drawn (its placement is kept).
+            let Some(spec) = self.layout.spec(&d.id).filter(|_| d.present) else {
                 continue;
             };
             let pl = &d.placement;
@@ -328,10 +329,14 @@ pub fn scene_element<'a>(
 }
 
 /// Convenience: pretty spec list in stable order (used by the enable chips).
-pub fn placed_specs(layout: &CanvasLayout) -> Vec<(String, LedSpec, bool)> {
+/// The index is the device's position in the layout — the key for
+/// [`device_color`], so a chip and its outline on the canvas always match.
+pub fn placed_specs(layout: &CanvasLayout) -> Vec<(usize, String, LedSpec, bool)> {
     layout
         .devices
         .iter()
-        .filter_map(|d| layout.spec(&d.id).map(|s| (d.id.clone(), s, d.enabled)))
+        .enumerate()
+        .filter(|(_, d)| d.present)
+        .filter_map(|(i, d)| layout.spec(&d.id).map(|s| (i, d.id.clone(), s, d.enabled)))
         .collect()
 }

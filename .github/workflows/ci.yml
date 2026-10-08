@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # hidapi needs libudev; the GTK launcher (cntrl-gtk) is not built here.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+      - run: cargo test -p cntrl-core
+      - run: cargo test -p cntrl-core --release canvas_effects
+      - run: cargo clippy -p cntrl-core
+      - run: cargo build -p cntrl-cli

@@ -880,9 +880,9 @@ i2c address). On another PC the app must start cleanly and show only what it
 detects.
 
 **Acceptance criteria:**
-- [ ] Canvas devices come from detection; a missing device is not listed and never written
-- [ ] Board-specific constants are in one documented place with their env overrides
-- [ ] With no supported hardware, the panel opens and says so
+- [x] Canvas devices come from detection; a missing device is not listed and never written
+- [x] Board-specific constants are in one documented place with their env overrides
+- [x] With no supported hardware, the panel opens and says so
 
 **Verification:**
 - [ ] Manual: run with the keyboard unplugged and with `CNTRL_ITE_PATH` set to a missing path
@@ -890,6 +890,12 @@ detects.
 **Dependencies:** Checkpoint D
 **Files likely touched:** `cntrl-core/src/canvas.rs`, `cntrl-core/src/devices.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** each canvas device is flagged present or absent from the device
+inventory. Absent devices keep their placement but are not drawn, not listed and not written.
+The README has a table of the board-specific environment variables. The daemon's autostart
+skips the check on purpose (at login the devices may not have appeared yet). Not run with a
+device actually unplugged.
 
 ## Task 36: Repo clean-up for publishing
 
@@ -902,7 +908,7 @@ decisions; nothing is deleted without your OK.
 **Acceptance criteria:**
 - [ ] Each root dump is kept (moved), or deleted, by your choice
 - [ ] No serials, tokens or personal paths in the tree; history checked and the result recorded
-- [ ] `LICENSE` added (your choice of licence)
+- [x] `LICENSE` added (your choice of licence)
 
 **Verification:**
 - [ ] `git grep` for your user name, home path and device serials finds nothing
@@ -911,6 +917,16 @@ decisions; nothing is deleted without your OK.
 **Files likely touched:** repo root, `docs/`, `.gitignore`
 **Estimated scope:** M
 
+**Status (2026-10-08):** `LICENSE-MIT` and `LICENSE-APACHE` added, crates marked
+`MIT OR Apache-2.0`. The dump files are untracked and ignored. The systemd probe unit no longer
+hard-codes a user name (install.sh fills it in). A search of the tracked tree for the user name
+and home paths finds nothing outside `tasks/` and `docs/reviews/`.
+**Still open, needs you:** the dumps are still in git history (2 commits touch them). A search of
+`mchose-indexeddb-dump.json` for "serial", "email" and "token" finds nothing, but I have not
+read the dumps through. Rewriting history is
+destructive, so I have not done it. The analysis scripts and `PHASE1_LIGHTING.md` are still in
+the repo root.
+
 ## Task 37: README, supported hardware list, CI
 
 **Description:** A README a stranger can follow: what it supports, install,
@@ -918,7 +934,7 @@ udev, fan safety warning, how to add a device. A GitHub workflow running
 `cargo test` and `cargo clippy`.
 
 **Acceptance criteria:**
-- [ ] Supported-hardware table with what works on each device
+- [x] Supported-hardware table with what works on each device
 - [ ] Install steps tested from a clean checkout
 - [ ] CI is green
 
@@ -928,6 +944,11 @@ udev, fan safety warning, how to add a device. A GitHub workflow running
 **Dependencies:** Task 35, Task 36
 **Files likely touched:** `README.md`, `.github/workflows/ci.yml`
 **Estimated scope:** S
+
+**Status (2026-10-08):** README has a supported-hardware table, install steps, the fan safety
+note, the new canvas features and a licence section. `.github/workflows/ci.yml` runs the core
+tests, the release-mode effect speed check, clippy and a CLI build. Not verified: the workflow
+has never run (nothing is pushed), and the install steps were not tried from a clean checkout.
 
 ## Checkpoint: Complete
 - [ ] Every task above is checked or explicitly dropped

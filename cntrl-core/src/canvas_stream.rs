@@ -450,7 +450,7 @@ fn sample_if_enabled(
     brightness: f32,
     identify: Option<&str>,
 ) -> Option<Vec<[u8; 3]>> {
-    let placed = layout.device(id).filter(|d| d.enabled)?;
+    let placed = layout.device(id).filter(|d| d.active())?;
     let spec = layout.spec(id)?;
     if !spec.streamable {
         return None;
@@ -523,7 +523,7 @@ fn average_if_enabled(
 pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], String> {
     let placed = layout
         .device(canvas::DEV_KEYBOARD)
-        .filter(|d| d.enabled)
+        .filter(|d| d.active())
         .ok_or_else(|| "keyboard is disabled on the canvas".to_string())?;
     let spec = layout.spec(canvas::DEV_KEYBOARD).expect("keyboard spec");
     let s = &layout.settings;

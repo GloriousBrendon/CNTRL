@@ -519,7 +519,8 @@ impl App {
     fn from_profile(doc: ProfileDocument, active_slot: u8) -> Self {
         let (effect_id, brightness, speed, current_color, hsl) = derive_profile_state(&doc);
         let fan_discovery = cntrl_core::fan_control::discover();
-        let canvas_layout = core_canvas::load_layout();
+        let mut canvas_layout = core_canvas::load_layout();
+        canvas_layout.mark_present(&core_canvas::absent_backends());
         let canvas_preview = canvas_tab::render_preview(&canvas_layout, 0.0, &Default::default());
 
         Self {
@@ -802,6 +803,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.tab = t;
             if t == ShellTab::Devices {
                 app.devices = cntrl_core::devices::enumerate();
+            }
+            if t == ShellTab::Canvas && !app.streaming() {
+                // Pick up devices plugged in or removed since the last look.
+                // (Not while streaming: probing would share the buses with it.)
+                app.canvas_layout.mark_present(&core_canvas::absent_backends());
             }
             if t == ShellTab::Fans {
                 app.refresh_fans();
@@ -1117,6 +1123,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 settings,
                 ..CanvasLayout::default()
             };
+            app.canvas_layout.mark_present(&core_canvas::absent_backends());
             app.canvas_selected = None;
             app.sync_stream();
             app.save_canvas_layout();
@@ -2100,10 +2107,14 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     // ── device chips: toggle each device's canvas participation. Each chip
     // carries the same identifying color as the device's border on the canvas ──
     let mut chips = row![].spacing(8);
-    for (i, (id, spec, enabled)) in canvas_tab::placed_specs(&app.canvas_layout)
-        .into_iter()
-        .enumerate()
-    {
+    if !app.canvas_layout.devices.iter().any(|d| d.present) {
+        chips = chips.push(
+            text("No supported RGB devices detected — see the Devices tab for why.")
+                .size(12)
+                .color(muted(colors)),
+        );
+    }
+    for (i, id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
         // Compact names so a fully split chain still fits on one row.
         let label = spec
             .name

@@ -33,7 +33,12 @@ fi
 systemctl --user try-restart cntrl-daemon.service 2>/dev/null || true
 
 # Units ship with /usr/local/bin; rewrite to wherever the binary really went.
-unit() { sed "s|/usr/local/bin/cntrl|$BINDIR/cntrl|" "$ROOT/packaging/systemd/$1"; }
+ME="${SUDO_USER:-$USER}"
+unit() {
+    sed -e "s|/usr/local/bin/cntrl|$BINDIR/cntrl|" \
+        -e "s|@USER@|$ME|" -e "s|@HOME@|$(getent passwd "$ME" | cut -d: -f6)|" \
+        "$ROOT/packaging/systemd/$1"
+}
 
 echo "==> Installing udev rules..."
 sudo install -Dm644 \

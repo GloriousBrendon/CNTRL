@@ -44,6 +44,8 @@ fn run_unix() -> Result<(), String> {
 
     if cntrl_core::settings::load().canvas_autostart {
         eprintln!("cntrl daemon: starting canvas stream (autostart)");
+        // No presence check here: at login the devices may not have appeared
+        // yet. The stream retries a missing device every couple of seconds.
         canvas(&Request::CanvasStart {
             layout: cntrl_core::canvas::load_layout(),
         });

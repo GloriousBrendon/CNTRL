@@ -1,6 +1,43 @@
 # CNTRL
 
-ICED-first Linux app for the **MCHOSE Ace68-II** (`41e4:2116`) with unified keyboard + PC RGB apply. On **Linux**, CNTRL pushes **lighting** over vendor HID/hidraw plus optional PC RGB backends (ITE/GPU/Corsair). Other profile areas (keymap, macros, performance) remain **local JSON** until explicitly implemented.
+Native RGB lighting and fan control for Linux, in one app: a keyboard, the
+motherboard's ARGB headers, GPU and RAM lit as one canvas, and temperature-driven
+fan curves. No OpenRGB, no vendor software, no browser engine — CNTRL talks to
+the hardware directly over `hidraw`, `i2c` and `hwmon`.
+
+## Supported hardware
+
+CNTRL only shows and drives what it detects. This is what it knows today:
+
+| Device | What works | Notes |
+|--------|------------|-------|
+| **MCHOSE Ace68-II** keyboard (`41e4:2116`) | Static colour, built-in effects, per-key live streaming (60+ fps) | Needs the udev rule |
+| **ITE IT5702** motherboard RGB (`048d:5702`, Gigabyte RGB Fusion 2) | Two ARGB headers per LED (fans and strips), 12V RGB header, the board's own zones | Tested on a B650 AORUS ELITE AX V2 |
+| **AMD Radeon** GPU with Gigabyte RGB over i2c | One colour for the whole card | Streams colour only; never writes the card's flash |
+| **Corsair DDR5** RGB RAM (SMBus) | Per-LED colour, about 9 updates a second | Rate-limited: the controller rejects faster writes |
+| **Fans** on any `hwmon` chip with `pwmN` + `pwmN_enable` | Temperature curves | `amdgpu` out of the box; Gigabyte boards need the out-of-tree `it87` driver (see Fan control) |
+
+Other hardware is not supported yet. Adding a device means a backend in
+`cntrl-core/src/` (see `gpu_rgb.rs` for the smallest one) and a line in the
+catalog in `devices.rs`.
+
+## Install
+
+```bash
+git clone https://github.com/GloriousBrendon/CNTRL && cd CNTRL
+INSTALL_SYSTEMD=1 ./scripts/install.sh    # builds, installs /usr/local/bin/cntrl, udev rules, services
+cntrl devices                             # what was detected, and why anything is blocked
+cntrl panel                               # the app
+```
+
+Needs a Rust toolchain and `libudev`. `INSTALL_SYSTEMD=1` also sets up the
+background daemon (theme sync, fan engine, canvas stream) and the units that
+restore lighting at login and after suspend. Add `INSTALL_IT87=1` for
+motherboard fan headers.
+
+> **Fans are safety-relevant.** CNTRL hands every fan back to firmware control
+> when it stops, is disabled, or loses the temperature sensor a curve depends
+> on — but a `kill -9` cannot be caught. `cntrl fans restore` recovers from that.
 
 The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`** binary: daemon / panel / devices / apply-theme), `cntrl-iced` (primary UI — full desktop panel), and `cntrl-gtk` (legacy compatibility launcher that opens the ICED panel). Build and run from the repository root.
 
@@ -36,21 +73,40 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 The **Canvas** tab maps every device onto one virtual effect surface: each device declares its LED geometry (per-key for the keyboard, per-LED for the ARGB strips), you drag/rotate/scale devices to mirror your desk, and effects render onto the canvas while every LED samples the pixel underneath it — so one animation flows across strips, GPU and RAM in physical order. No browser engine, no external tools: effects are pure Rust functions and the sampler is the native equivalent of SignalRGB's `device.color(x, y)`.
 
-- **Demo effects:** Rainbow Wave, Plasma, Ripple, Comet, Aurora (`cntrl canvas --list`).
-- **Live streaming:** the keyboard gets true **per-key** frames (native CZ protocol, ~7 ms/frame — up to 143 fps); ITE D_LED1/D_LED2 strips get per-LED frames; GPU gets a sampled zone color (never saved to its flash); Corsair RAM gets per-LED SMBus writes (rate-limited). When a stream stops, every device returns to its saved lighting.
+- **26 effects** (`cntrl canvas --list`): everyday (Solid, Gradient, Breathing, Spectrum Cycle, rainbows), ambient (Fire, Lava, Rain, Matrix, Twinkle, Aurora, Plasma, Waves), motion (Comet, Scanner, Radar Sweep, Ripple, Neon Pulse, Bouncing Balls) and audio-reactive (Spectrum Bars, Audio Wave, Beat Pulse). Each shows only the controls it uses (speed, scale, direction, one to three colours) and remembers its own settings. The first colour can follow your theme accent.
+- **Layers:** draw a second effect over the main one with Add / Screen / Multiply / Normal blending and an opacity slider — Twinkle over a Gradient, for example. The overlay uses that effect's own saved settings.
+- **Audio:** audio effects and the "Brightness follows the music" option listen to whatever your default output is playing. Capture uses `parec` (part of `pipewire-pulse` / PulseAudio) and runs only while something needs it.
+- **Live streaming:** each device family writes on its own thread at its own pace. At 60 fps the keyboard gets true **per-key** frames, the ARGB headers per-LED frames (about 50 a second), the GPU a sampled colour (never saved to its flash) and Corsair RAM per-LED SMBus writes (rate-limited). A device that fails or is unplugged is retried every two seconds. When a stream stops, every device returns to its saved lighting.
+- **Runs in the daemon:** with `cntrl daemon` running, the stream lives there — it survives closing the panel, and **Start at login** on the Canvas tab brings it back after a reboot. Without the daemon, the panel streams by itself. Applying a static colour from the Lighting tab stops the stream; a theme change while streaming is saved but does not write over the effect.
 - **Arrangement:** drag devices on the Canvas tab; selection supports rotate (90°) and scale. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
-- **Per-fan ARGB:** each header's daisy chain can be split into individual fans (**ARGB CHAINS** presets) — every fan becomes its own draggable ring, so chains that light "out of order" are fixed by placing each fan where it physically sits (or toggling **Reverse** for backwards wiring; the accent dot marks the chain's first LED).
+- **ARGB chains:** tell CNTRL what is plugged along each header — how many fans, how many LEDs per fan (8, 12 or 16), and an optional strip after them; a header can also be empty. Every fan becomes its own draggable ring. **Identify** lights only the selected device (first LED on the wire in red), so you can match each ring to its physical fan and toggle **Reverse** for backwards wiring.
+- **Board zones:** the motherboard's own lit zones appear as "Board zone N" and start disabled; enable one and use Identify to see which part of the board it is.
 - **Per-element trim:** each placed device has its own brightness, hue shift, and saturation sliders on top of the global effect settings.
-- **Headless:** `cntrl canvas --effect plasma --fps 20` streams with the saved layout; `--seconds N` for a timed run.
+- **Headless:** `cntrl canvas --effect fire --fps 30` starts a stream with the saved layout (in the daemon when it runs: stop it with `cntrl canvas --stop`); `--seconds N` for a timed run.
+
+### Board-specific settings
+
+Detection covers the common case. These environment variables override it for other boards:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `CNTRL_ITE_PATH` | auto | hidraw node of the ITE controller |
+| `CNTRL_ITE_STRIP_COLOR_ORDER` | board default | Colour order of the ARGB headers (e.g. `grb`) |
+| `CNTRL_ITE_RGB12V_ZONE` | `2` | ITE zone of the 12V RGB header |
+| `CNTRL_GPU_I2C_BUS` | auto | i2c bus of the GPU's RGB controller (e.g. `/dev/i2c-8`) |
+| `CNTRL_GPU_I2C_ZONES` | `5` | Number of GPU lighting zones |
+| `CNTRL_CORSAIR_RAM_LED_COUNT` | `10` | LEDs per DIMM |
+| `CNTRL_PC_RGB_BACKENDS` | all | Limit static applies to some backends (`ite_rgb,gpu_rgb,corsair_ram`) |
+| `CNTRL_CANVAS_LAYOUT_PATH` | `~/.config/cntrl/canvas_layout.json` | Use another layout file |
 
 ## Fan control (temp→duty curves, native)
 
 The **Fans** tab is a native equivalent of Windows' *Fan Control*: it reads temperature sensors from `/sys/class/hwmon` and drives fan PWM channels with custom curves. No external tools — plain sysfs, same "native-only" philosophy as the lighting.
 
-- **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. On this machine the **GPU fan** (`amdgpu`) works out of the box. Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
+- **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. The **GPU fan** (`amdgpu`) works out of the box; motherboard headers need the `it87` driver (below). Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
 - **Curves:** drag points on the graph (temp on X, duty% on Y), click empty space to add a point, right-click to delete. Linear interpolation with clamped ends, exactly like Fan Control. Each channel also has a **min/max duty** envelope. Temps are EMA-smoothed (the "Response Time" knob) and a small change threshold prevents fan hunting.
 - **The engine:** enable it with the **Enable engine** toggle (or `enabled: true` in `~/.config/cntrl/fan_curves.json`). It runs inside `cntrl daemon`, or standalone in the foreground via `cntrl fans run`. The GUI only edits the JSON; the engine picks up changes on its next tick — the same relationship the theme watcher has with `settings.json`.
-- **Safety:** on start the engine records each driven fan's original mode/PWM and flips it to manual. On Ctrl-C, SIGTERM, or a panic it **restores** every fan to exactly what it was. `SIGKILL` (`kill -9`) can't be trapped — if that happens, `cntrl fans restore` puts the fans back.
+- **Safety:** before the engine first drives a fan it records the fan's original mode. It hands the fan back to firmware control on Ctrl-C, SIGTERM or a panic, when you untick **Enable engine**, when you remove the fan's curve, and when the sensor its curve reads disappears (it takes the fan back when the sensor returns). Only one engine can run at a time. `SIGKILL` (`kill -9`) can't be trapped — if that happens, `cntrl fans restore` puts the fans back.
 
 ### First-time setup (permissions)
 
@@ -201,6 +257,12 @@ device was the Off effect, that is what boot and resume restore. Applying any
 color (including via theme sync) records the new state and clears it.
 
 That reprobes with OpenRGB and persists mapping to `~/.config/cntrl/pc_rgb_probe.json`. Runtime apply paths then auto-load this mapping.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option. Contributions are accepted under the
+same terms.
 
 ## Development
 

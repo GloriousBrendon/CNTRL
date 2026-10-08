@@ -266,6 +266,7 @@ fn run_canvas(
     }
 
     let mut layout = cntrl_core::canvas::load_layout();
+    layout.mark_present(&cntrl_core::canvas::absent_backends());
     if let Some(name) = effect {
         layout.settings.set_effect(
             EffectKind::from_slug(name)
@@ -279,7 +280,7 @@ fn run_canvas(
     let enabled: Vec<&str> = layout
         .devices
         .iter()
-        .filter(|d| d.enabled)
+        .filter(|d| d.active())
         .map(|d| d.id.as_str())
         .collect();
     println!(

@@ -1,14 +1,14 @@
 [Unit]
-Description=CNTRL RGB Probe (persist OpenRGB mapping at boot)
-Documentation=https://github.com/USER/CNTRL
+Description=CNTRL RGB probe (record detected RGB devices at boot)
+Documentation=https://github.com/GloriousBrendon/CNTRL
 After=systemd-udev-settle.service
 Wants=systemd-udev-settle.service
 
 [Service]
 Type=oneshot
-User=USER
-Environment=HOME=/home/USER
-# Adjust this path if cntrl is not installed system-wide.
+# scripts/install.sh fills in the installing user and the binary path.
+User=@USER@
+Environment=HOME=@HOME@
 ExecStart=/usr/local/bin/cntrl probe-rgb --force --no-apply
 
 [Install]

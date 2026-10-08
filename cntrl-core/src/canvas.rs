@@ -469,6 +469,39 @@ pub struct PlacedDevice {
     /// whose daisy-chain enters from the far end.
     #[serde(default)]
     pub reversed: bool,
+    /// The hardware behind this device was detected. Refreshed by
+    /// [`CanvasLayout::mark_present`]; absent devices keep their placement
+    /// but are neither shown nor written.
+    #[serde(default = "default_true")]
+    pub present: bool,
+}
+
+impl PlacedDevice {
+    /// Should the stream sample and write this device?
+    pub fn active(&self) -> bool {
+        self.enabled && self.present
+    }
+}
+
+/// The backend (`devices::BACKEND_*`) that drives a canvas device id.
+fn backend_of(id: &str) -> &'static str {
+    use crate::devices::*;
+    match id {
+        DEV_KEYBOARD => BACKEND_KEYBOARD,
+        DEV_GPU => BACKEND_GPU,
+        DEV_RAM0 | DEV_RAM1 => BACKEND_CORSAIR,
+        // ARGB headers, the 12V header and the board zones all hang off the ITE chip.
+        _ => BACKEND_ITE,
+    }
+}
+
+/// Backends whose hardware is not on this machine right now (probes devices).
+pub fn absent_backends() -> Vec<&'static str> {
+    crate::devices::enumerate()
+        .into_iter()
+        .filter(|d| d.status == crate::devices::DeviceStatus::Absent)
+        .map(|d| d.backend_id)
+        .collect()
 }
 
 impl PlacedDevice {
@@ -481,6 +514,7 @@ impl PlacedDevice {
             hue_shift: 0.0,
             saturation: 100.0,
             reversed: false,
+            present: true,
         }
     }
 }
@@ -802,6 +836,14 @@ impl CanvasLayout {
         }
     }
 
+    /// Flag which devices have hardware behind them (see [`absent_backends`]).
+    /// A backend can report several devices; one of them present is enough.
+    pub fn mark_present(&mut self, absent: &[&str]) {
+        for d in &mut self.devices {
+            d.present = !absent.contains(&backend_of(&d.id));
+        }
+    }
+
     pub fn spec(&self, id: &str) -> Option<LedSpec> {
         spec_by_id(&self.chains, id)
     }
@@ -1058,6 +1100,24 @@ mod tests {
         assert!(!json.contains("\"color\""));
         let back: EffectSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.saved[&EffectKind::Comet].palette, vec![[1, 2, 3]]);
+    }
+
+    #[test]
+    fn absent_hardware_is_hidden_but_keeps_its_placement() {
+        let mut layout = CanvasLayout::default();
+        layout.device_mut(DEV_GPU).unwrap().placement.x = 42.5;
+        layout.mark_present(&[crate::devices::BACKEND_GPU, crate::devices::BACKEND_ITE]);
+        assert!(!layout.device(DEV_GPU).unwrap().active());
+        assert!(!layout.device("dled1.0").unwrap().active());
+        assert!(!layout.device(DEV_RGB12V).unwrap().active());
+        assert!(layout.device(DEV_KEYBOARD).unwrap().active());
+        assert!(layout.device(DEV_RAM0).unwrap().active());
+
+        // Plugged back in: same spot as before.
+        layout.mark_present(&[]);
+        let gpu = layout.device(DEV_GPU).unwrap();
+        assert!(gpu.active());
+        assert_eq!(gpu.placement.x, 42.5);
     }
 
     #[test]
