@@ -37,13 +37,13 @@ and make `discover()` call it with the real path. Write one test that builds a
 fake chip in a temp directory and runs a tick.
 
 **Acceptance criteria:**
-- [ ] `discover_in(&Path)` exists; `discover()` behaviour is unchanged
-- [ ] A test creates `hwmonN/{name,pwm1,pwm1_enable,fan1_input,temp1_input}` in a temp dir and asserts a tick writes the expected PWM and sets manual mode
-- [ ] No test touches the real `/sys`
+- [x] `discover_in(&Path)` exists; `discover()` behaviour is unchanged
+- [x] A test creates `hwmonN/{name,pwm1,pwm1_enable,fan1_input,temp1_input}` in a temp dir and asserts a tick writes the expected PWM and sets manual mode
+- [x] No test touches the real `/sys`
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core fan_` passes
-- [ ] `target/release/cntrl fans list` still prints 21 sensors and `amdgpu/pwm1`
+- [x] `cargo test -p cntrl-core fan_` passes
+- [x] `target/release/cntrl fans list` still prints 21 sensors and `amdgpu/pwm1`
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-core/src/fan_control.rs`, `cntrl-core/src/fan_curves.rs`
@@ -58,13 +58,13 @@ channel to its captured original state (firmware control). Try again each tick,
 and take the fan back when the sensor returns.
 
 **Acceptance criteria:**
-- [ ] A failed read removes that sensor from `state.smoothed`
-- [ ] A channel whose curve cannot be evaluated is restored to its original mode, never left in manual
-- [ ] If the captured original mode was itself manual, the channel is set to automatic instead
-- [ ] Test: delete `temp1_input` between two ticks; `pwm1_enable` is back to the original value; put it back, next tick engages again
+- [x] A failed read removes that sensor from `state.smoothed`
+- [x] A channel whose curve cannot be evaluated is restored to its original mode, never left in manual
+- [x] If the captured original mode was itself manual, the channel is set to automatic instead
+- [x] Test: delete `temp1_input` between two ticks; `pwm1_enable` is back to the original value; put it back, next tick engages again
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core fan_` passes
+- [x] `cargo test -p cntrl-core fan_` passes
 
 **Dependencies:** Task 1
 **Files likely touched:** `cntrl-core/src/fan_curves.rs`
@@ -77,13 +77,13 @@ fan stays in manual mode at its last speed. Restore on disable, and restore any
 captured channel that no longer has an assignment.
 
 **Acceptance criteria:**
-- [ ] `enabled: false` restores every captured channel and resets tick state
-- [ ] Removing one assignment restores only that channel
-- [ ] Test: fake chip returns to its original `pwm1_enable` after the config is disabled
+- [x] `enabled: false` restores every captured channel and resets tick state
+- [x] Removing one assignment restores only that channel
+- [x] Test: fake chip returns to its original `pwm1_enable` after the config is disabled
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core fan_` passes
-- [ ] Manual: enable a curve on `amdgpu/pwm1`, untick the engine, `cat /sys/class/hwmon/hwmon3/pwm1_enable` shows the original value within 2 s
+- [x] `cargo test -p cntrl-core fan_` passes
+- [x] Manual: enable a curve on `amdgpu/pwm1`, untick the engine, `cat /sys/class/hwmon/hwmon3/pwm1_enable` shows the original value within 2 s
 
 **Dependencies:** Task 1
 **Files likely touched:** `cntrl-core/src/fan_engine.rs`, `cntrl-core/src/fan_curves.rs`
@@ -96,13 +96,13 @@ before the fan thread restores the fans. Keep the thread handle and join it.
 Drop the idle accept sleep from 200 ms to 20 ms.
 
 **Acceptance criteria:**
-- [ ] `run_unix` joins the fan thread after the accept loop
-- [ ] Accept loop sleeps 20 ms when idle
-- [ ] The daemon exits within 2 s of SIGTERM
+- [x] `run_unix` joins the fan thread after the accept loop
+- [x] Accept loop sleeps 20 ms when idle
+- [x] The daemon exits within 2 s of SIGTERM
 
 **Verification:**
-- [ ] Build succeeds
-- [ ] Manual: with a curve active, `systemctl --user stop cntrl-daemon`; the journal shows the restore line before "stopped", and `pwm1_enable` is back to its original value
+- [x] Build succeeds
+- [x] Manual: with a curve active, `systemctl --user stop cntrl-daemon`; the journal shows the restore line before "stopped", and `pwm1_enable` is back to its original value
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-cli/src/daemon.rs`
@@ -115,22 +115,34 @@ without saving the original state, so `cntrl fans restore` has nothing to
 restore.
 
 **Acceptance criteria:**
-- [ ] A non-dry-run `fans apply` calls `capture_and_engage` before `tick`
-- [ ] It takes the engine lock and refuses with a clear message if the daemon holds it
-- [ ] `cntrl fans restore` after `fans apply` puts the fan back
+- [x] A non-dry-run `fans apply` calls `capture_and_engage` before `tick`
+- [x] It takes the engine lock and refuses with a clear message if the daemon holds it
+- [x] `cntrl fans restore` after `fans apply` puts the fan back
 
 **Verification:**
-- [ ] Build succeeds
-- [ ] Manual: stop the daemon, `cntrl fans apply`, `cntrl fans restore`, `pwm1_enable` matches the value before
+- [x] Build succeeds
+- [x] Manual: stop the daemon, `cntrl fans apply`, `cntrl fans restore`, `pwm1_enable` matches the value before
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-cli/src/main.rs`
 **Estimated scope:** XS
 
 ## Checkpoint A: fans are safe on the GPU fan
-- [ ] `cargo test -p cntrl-core` passes; build clean
-- [ ] On `amdgpu/pwm1`: enable, disable, stop daemon, `kill -TERM`, `fans apply` + `restore` all end with the fan back in its original mode
+- [x] `cargo test -p cntrl-core` passes; build clean
+- [x] On `amdgpu/pwm1`: enable, disable, stop daemon, `kill -TERM`, `fans apply` + `restore` all end with the fan back in its original mode
 - [ ] You have looked at it before motherboard fans are touched
+
+**Run on 2026-10-08** with the new build on case fan `it8689_90060606/pwm3` (it could
+be tested there because Task 9 passed; the GPU fan was in zero-RPM mode):
+engine on → manual; disabled → auto; curve removed → auto; sensor id missing →
+auto, then manual again when it returned; SIGTERM → "restored 1" logged before
+"stopped"; `fans apply` refused while the daemon ran, and `fans apply` +
+`fans restore` alone ended in auto. Not run: `kill -TERM` during a write.
+
+**Changes from the plan:**
+- A lost sensor sets the fan to automatic mode (2) directly, instead of replaying the saved original. Simpler, and the same on this hardware.
+- The engine no longer switches a fan to manual before it has a speed to write (`capture_and_engage` became `capture_originals`).
+- Restore no longer writes the PWM value in automatic mode. This is the code half of Task 8 (the "Device or resource busy" warning).
 
 ---
 
@@ -204,10 +216,26 @@ cntrl fans list               # expect it87/pwm1..N
 cntrl fans it87-spike --channel it87/pwm1 --value 200 --seconds 30
 ```
 
+**Result so far (2026-10-08):**
+- `sudo modprobe it87` loads with no `force_id`. The chip shows up as `it8689` (the chip name, not `it87`).
+- Five channels: `it8689/pwm1,2,3,4,6`, all with RPM, all in mode 2 (firmware automatic). Six more temperature sensors.
+- All five were "Permission blocked": the udev rule matched the name `it87`. Fixed to `it8*` in the repo; needs reinstalling.
+- The spike failed only because the plan used the wrong id (`it87/pwm1`). Use `it8689/pwm1`.
+- udev rule reinstalled: all five channels Controllable.
+- **Spike verdict: the in-tree driver does not control speed.** In manual mode the RPM ignores the value written:
+  - `pwm1` (about 1330 RPM in auto): 255 → 1268, 200 → 1132, 120 → 1275, 60 → 1347.
+  - `pwm3` (919 RPM in auto): 255 → 811.
+  - Mode switching works (the RPM shifts and goes flat); the duty value has no effect.
+- Every restore printed `Device or resource busy` on the PWM write after going back to mode 2. The mode restore itself worked (all channels read `pwm_enable=2` afterwards). This is Review 5, now confirmed on it87: Task 8 is real.
+- The spike once said PASS wrongly: its baseline was taken while the fan was still settling after the previous run. Task 8 also makes the spike wait for a steady baseline and check the direction of the change.
+- **Out-of-tree driver (`it87-dkms-git` 358.bd7a566): PASS.** It needed `linux-cachyos-bore-headers` so DKMS could build for the running kernel. On `pwm3`: 255 → 1850 RPM (from 845), 80 → 585 RPM. Speed follows the value in both directions.
+- With this driver the chip is named `it8689_90060606` and there are six channels (`pwm1`–`pwm6`; `pwm5` is new). Channel ids, and so saved curves, depend on which driver is loaded.
+- Still open: which channel is which physical fan.
+
 **Acceptance criteria:**
-- [ ] Recorded: does `it87` load, with or without `force_id`
+- [x] Recorded: does `it87` load, with or without `force_id`
 - [ ] Recorded: which `it87/pwmN` maps to which physical fan
-- [ ] Recorded: does RPM follow the PWM write for 30 s, or does firmware take it back
+- [x] Recorded: does RPM follow the PWM write for 30 s, or does firmware take it back
 
 **Verification:**
 - [ ] The spike report is pasted into this task
@@ -219,6 +247,11 @@ cntrl fans it87-spike --channel it87/pwm1 --value 200 --seconds 30
 ## Task 10: Load it87 at boot (only if Task 9 passes)
 
 **Description:** Make the motherboard fans available after every boot.
+Task 9 showed the in-tree driver cannot set speed on this board; the
+out-of-tree `it87-dkms-git` can. So the README must say: install that package
+and the headers for your running kernel. `fans list` should warn when an ITE
+chip is driven by the in-tree module (module path not under `updates/`),
+because that combination reads fine and silently ignores speed writes.
 `install.sh` writes `/etc/modules-load.d/cntrl-it87.conf` (plus a
 `modprobe.d` option line if `force_id` was needed). If Task 9 failed, instead
 say so in the README and Fans tab and close the task.

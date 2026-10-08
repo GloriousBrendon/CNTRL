@@ -40,7 +40,7 @@ fn run_unix() -> Result<(), String> {
     cntrl_core::fan_engine::install_signal_handlers();
 
     std::thread::spawn(theme_watcher);
-    std::thread::spawn(fan_watcher);
+    let fan = std::thread::spawn(fan_watcher);
 
     // Non-blocking accept so the main loop can notice a stop request (signal) and
     // shut down cleanly, letting the fan engine restore hardware.
@@ -57,13 +57,16 @@ fn run_unix() -> Result<(), String> {
                 });
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
             Err(e) => eprintln!("cntrl daemon: accept error: {e}"),
         }
     }
 
     let _ = std::fs::remove_file(&path);
+    // The fan thread restores the fans on its way out; exiting before it
+    // finishes would strand them in manual mode.
+    let _ = fan.join();
     eprintln!("cntrl daemon: stopped.");
     Ok(())
 }
@@ -84,7 +87,10 @@ fn fan_watcher() {
         let active = summary
             .reports
             .iter()
-            .any(|r| matches!(r.result, cntrl_core::fan_curves::ApplyResult::Written | cntrl_core::fan_curves::ApplyResult::Error));
+            .any(|r| {
+                use cntrl_core::fan_curves::ApplyResult::*;
+                matches!(r.result, Written | Error | HandedBack)
+            });
         if active {
             eprintln!("cntrl daemon: {}", summary.short_message());
         }

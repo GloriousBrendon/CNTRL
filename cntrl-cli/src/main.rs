@@ -114,7 +114,7 @@ enum FanCommands {
     },
     /// Drive one channel to a fixed PWM and watch its RPM to see if it holds.
     It87Spike {
-        /// Channel id from `fans list`, e.g. `it87/pwm1`.
+        /// Channel id from `fans list`, e.g. `it8689/pwm1`.
         #[arg(long)]
         channel: String,
         /// Raw PWM value to command (0..=255).
@@ -407,6 +407,15 @@ fn run_fans_apply(dry_run: bool) -> Result<(), String> {
         return Ok(());
     }
     let discovery = fan_control::discover();
+    // A real apply leaves fans in manual mode: refuse while an engine owns them,
+    // and save their original state first so `cntrl fans restore` can undo it.
+    let _lock = if dry_run {
+        None
+    } else {
+        let lock = cntrl_core::fan_engine::acquire_lock()?;
+        fan_curves::capture_originals(&cfg, &discovery)?;
+        Some(lock)
+    };
     let mut state = fan_curves::TickState::default();
     let summary = fan_curves::tick(&cfg, &discovery, &mut state, dry_run);
 
@@ -417,6 +426,10 @@ fn run_fans_apply(dry_run: bool) -> Result<(), String> {
             .map(|p| format!("{p}%"))
             .unwrap_or_else(|| "—".to_string());
         println!("  {} → {target}  [{:?}]  {}", r.channel_id, r.result, r.reason);
+    }
+    if !dry_run {
+        println!("fans now hold these speeds; nothing follows temperature until");
+        println!("`cntrl fans run` or the daemon takes over. Undo with `cntrl fans restore`.");
     }
     Ok(())
 }

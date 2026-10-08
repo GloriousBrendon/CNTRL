@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 /// hwmon `pwmN_enable` value meaning "software/manual control".
 pub const PWM_ENABLE_MANUAL: u32 = 1;
+/// hwmon `pwmN_enable` value meaning "firmware/automatic control" (amdgpu, it87).
+pub const PWM_ENABLE_AUTO: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FanChannelStatus {
@@ -106,6 +108,14 @@ impl FanChannel {
         }
     }
 
+    /// Hand the channel back to firmware (automatic) control.
+    pub fn set_auto(&self) -> Result<(), String> {
+        match &self.enable_file {
+            Some(p) => write_sysfs(p, &PWM_ENABLE_AUTO.to_string()),
+            None => Err(format!("{}: no pwm enable file", self.id)),
+        }
+    }
+
     /// Set manual mode and verify it actually took. Some drivers accept the write
     /// at the syscall level but silently keep automatic control — notably RDNA3
     /// `amdgpu` when overdrive is disabled — which would otherwise surface only as
@@ -147,10 +157,15 @@ impl FanChannel {
         write_sysfs(&self.pwm_file, &raw.to_string())
     }
 
-    /// Restore a previously-captured enable mode then raw PWM value.
+    /// Restore a previously-captured enable mode, then the raw PWM value if
+    /// that mode is manual — drivers reject PWM writes in automatic mode
+    /// (it87: EBUSY), and the firmware owns the duty there anyway.
     pub fn restore(&self, enable_value: Option<u32>, pwm_value: u32) -> Result<(), String> {
         if let (Some(p), Some(v)) = (&self.enable_file, enable_value) {
             write_sysfs(p, &v.to_string())?;
+            if v != PWM_ENABLE_MANUAL {
+                return Ok(());
+            }
         }
         write_sysfs(&self.pwm_file, &pwm_value.to_string())
     }
@@ -188,10 +203,15 @@ const HWMON_ROOT: &str = "/sys/class/hwmon";
 /// Enumerate every temperature sensor and fan PWM channel on this machine.
 /// Pure read-only: openability is checked by opening+dropping, never writing.
 pub fn discover() -> FanDiscovery {
+    discover_in(Path::new(HWMON_ROOT))
+}
+
+/// `discover` over an arbitrary hwmon root (tests point this at a fake tree).
+pub fn discover_in(root: &Path) -> FanDiscovery {
     let mut sensors = Vec::new();
     let mut channels = Vec::new();
 
-    let entries = match fs::read_dir(HWMON_ROOT) {
+    let entries = match fs::read_dir(root) {
         Ok(e) => e,
         Err(_) => return FanDiscovery::default(),
     };
@@ -338,6 +358,7 @@ fn read_sysfs_i64(path: &Path) -> Result<i64, String> {
 fn write_sysfs(path: &Path, value: &str) -> Result<(), String> {
     let mut f = fs::OpenOptions::new()
         .write(true)
+        .truncate(true) // no-op on sysfs; keeps regular files (tests) exact
         .open(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     f.write_all(value.as_bytes())

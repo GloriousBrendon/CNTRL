@@ -123,11 +123,11 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 - [x] Task 0: Commit the current working tree (`8aa133d`, `5ff39bd`)
 
 ### Phase 1: Fan safety
-- [ ] Task 1: Fake-hwmon test root + first `apply_assignment` test
-- [ ] Task 2: Lost sensor hands the fan back to firmware
-- [ ] Task 3: Disabling the engine or removing a curve hands the fan back
-- [ ] Task 4: Daemon waits for the fan thread on stop
-- [ ] Task 5: `cntrl fans apply` captures state and takes the lock
+- [x] Task 1: Fake-hwmon test root + first `apply_assignment` test
+- [x] Task 2: Lost sensor hands the fan back to firmware
+- [x] Task 3: Disabling the engine or removing a curve hands the fan back
+- [x] Task 4: Daemon waits for the fan thread on stop
+- [x] Task 5: `cntrl fans apply` captures state and takes the lock
 
 ### Checkpoint A: fans are safe on the GPU fan
 
@@ -209,8 +209,9 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 5. Fans are 8 LEDs each; the header 1 strip is gone (Task 14 allows an empty header).
 6. Lost sensor: hand the fan back to firmware.
 
+7. Licence: dual MIT OR Apache-2.0 (the usual Rust choice).
+8. Root dump files: untracked and ignored (done in the working tree). They stay in git history until Task 36 decides about rewriting it.
+
 ## Open Questions
 
-1. **Task 9 needs you:** three commands with sudo, about a minute.
-2. **Licence for the public repo** (Task 36): MIT, GPL-3.0, other?
-3. **Root dump files** (Task 36): keep as protocol docs, or delete?
+1. **Task 9, second half:** reinstall the udev rule, then run the spike on `it8689/pwm1`.

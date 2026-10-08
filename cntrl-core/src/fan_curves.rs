@@ -208,6 +208,9 @@ pub enum ApplyResult {
     Skipped,
     /// Channel/curve/sensor missing or not controllable.
     Unsupported,
+    /// The curve could not be evaluated (lost sensor), so the channel was handed
+    /// back to firmware control until it can be.
+    HandedBack,
     /// A write or read failed.
     Error,
 }
@@ -234,6 +237,16 @@ impl FanTickSummary {
             .iter()
             .filter(|r| matches!(r.result, ApplyResult::Error | ApplyResult::Unsupported))
             .count();
+        let handed_back = self
+            .reports
+            .iter()
+            .filter(|r| r.result == ApplyResult::HandedBack)
+            .count();
+        if handed_back > 0 {
+            return format!(
+                "fans: written={written}, skipped={skipped}, error={err}, handed back to firmware={handed_back}"
+            );
+        }
         format!("fans: written={written}, skipped={skipped}, error={err}")
     }
 }
@@ -263,6 +276,11 @@ pub fn tick(
     state: &mut TickState,
     dry_run: bool,
 ) -> FanTickSummary {
+    // A channel that lost its assignment must be written afresh if it returns.
+    state
+        .last_written
+        .retain(|id, _| cfg.assignments.iter().any(|a| &a.channel_id == id));
+
     // 1. Read + smooth every sensor referenced by any graph curve.
     update_smoothed(cfg, discovery, state);
     let temps = state.smoothed.clone();
@@ -287,10 +305,10 @@ fn update_smoothed(cfg: &FanCurveConfig, discovery: &FanDiscovery, state: &mut T
     wanted.dedup();
 
     for sid in wanted {
-        let Some(sensor) = discovery.sensor(&sid) else {
-            continue;
-        };
-        let Ok(raw) = sensor.read_celsius() else {
+        // A sensor we can't read has no temperature: drop the stale value so
+        // its curves stop evaluating instead of holding the last duty forever.
+        let Some(raw) = discovery.sensor(&sid).and_then(|s| s.read_celsius().ok()) else {
+            state.smoothed.remove(&sid);
             continue;
         };
         let next = match state.smoothed.get(&sid) {
@@ -320,10 +338,33 @@ fn apply_assignment(
         return unsupported(format!("channel {} not present", a.channel_id));
     };
     let Some(raw_target) = cfg.eval_curve(&a.curve_id, temps) else {
-        return unsupported(format!(
+        let why = format!(
             "curve {} could not be evaluated (missing sensor or cycle)",
             a.curve_id
-        ));
+        );
+        if dry_run || !matches!(channel.status, crate::fan_control::FanChannelStatus::Controllable) {
+            return unsupported(why);
+        }
+        // Already handed back on an earlier tick: nothing to do (or to log).
+        if channel.read_enable() != Some(crate::fan_control::PWM_ENABLE_MANUAL) {
+            return unsupported(format!("{why}; under firmware control"));
+        }
+        // Never leave a fan in manual mode with nothing watching temperature.
+        state.last_written.remove(&a.channel_id);
+        return match channel.set_auto() {
+            Ok(()) => FanApplyReport {
+                channel_id: a.channel_id.clone(),
+                target_pct: None,
+                result: ApplyResult::HandedBack,
+                reason: format!("{why}; handed back to firmware control"),
+            },
+            Err(e) => FanApplyReport {
+                channel_id: a.channel_id.clone(),
+                target_pct: None,
+                result: ApplyResult::Error,
+                reason: format!("{why}; AND failed to hand back to firmware: {e}"),
+            },
+        };
     };
 
     // Clamp to the assignment's duty envelope.
@@ -472,9 +513,21 @@ pub fn clear_original_states() {
 }
 
 /// Record the current enable/pwm for every assigned+controllable channel that we
-/// don't already have on file, then flip it to manual mode. Call on engine start.
-pub fn capture_and_engage(cfg: &FanCurveConfig, discovery: &FanDiscovery) -> Result<(), String> {
+/// don't already have on file. Call before any tick that writes: the tick itself
+/// switches a channel to manual, only once it has a duty to write.
+pub fn capture_originals(cfg: &FanCurveConfig, discovery: &FanDiscovery) -> Result<(), String> {
     let mut states = load_original_states();
+    if capture_into(&mut states, cfg, discovery)? {
+        save_original_states(&states)?;
+    }
+    Ok(())
+}
+
+fn capture_into(
+    states: &mut OriginalStates,
+    cfg: &FanCurveConfig,
+    discovery: &FanDiscovery,
+) -> Result<bool, String> {
     let mut changed = false;
     for a in &cfg.assignments {
         let Some(channel) = discovery.channel(&a.channel_id) else {
@@ -497,27 +550,55 @@ pub fn capture_and_engage(cfg: &FanCurveConfig, discovery: &FanDiscovery) -> Res
             );
             changed = true;
         }
-        // Engage manual mode now so the first tick's write takes effect.
-        let _ = channel.set_manual();
     }
-    if changed {
-        save_original_states(&states)?;
-    }
-    Ok(())
+    Ok(changed)
 }
 
 /// Restore every recorded channel to its captured enable/pwm, then delete the
 /// state file. Idempotent — safe to call from a signal handler, panic hook, or
 /// `cntrl fans restore`. Returns a human-readable summary.
 pub fn restore_all() -> String {
-    let states = load_original_states();
-    if states.is_empty() {
-        return "no fan state to restore".to_string();
+    restore_where(|_| true).unwrap_or_else(|| "no fan state to restore".to_string())
+}
+
+/// Restore channels the engine once drove but `cfg` no longer assigns (curve
+/// removed in the UI), so they don't sit in manual mode unwatched. `None` when
+/// there was nothing to release.
+pub fn release_unassigned(cfg: &FanCurveConfig) -> Option<String> {
+    restore_where(|id| !cfg.assignments.iter().any(|a| a.channel_id == id))
+}
+
+/// Restore + forget every recorded channel matching `pick`. `None` if none match.
+fn restore_where(pick: impl Fn(&str) -> bool) -> Option<String> {
+    let mut states = load_original_states();
+    if !states.keys().any(|id| pick(id)) {
+        return None;
     }
     let discovery = crate::fan_control::discover();
+    let (ok, errors) = restore_states(&mut states, &discovery, pick);
+    if states.is_empty() {
+        clear_original_states();
+    } else if let Err(e) = save_original_states(&states) {
+        eprintln!("cntrl fans: could not update saved fan state: {e}");
+    }
+    Some(if errors.is_empty() {
+        format!("restored {ok} fan channel(s)")
+    } else {
+        format!("restored {ok}; errors: {}", errors.join(" | "))
+    })
+}
+
+fn restore_states(
+    states: &mut OriginalStates,
+    discovery: &FanDiscovery,
+    pick: impl Fn(&str) -> bool,
+) -> (usize, Vec<String>) {
     let mut ok = 0usize;
     let mut errors: Vec<String> = Vec::new();
-    for (id, orig) in &states {
+    states.retain(|id, orig| {
+        if !pick(id) {
+            return true;
+        }
         match discovery.channel(id) {
             Some(channel) => match channel.restore(orig.enable_value, orig.pwm_value) {
                 Ok(()) => ok += 1,
@@ -525,13 +606,9 @@ pub fn restore_all() -> String {
             },
             None => errors.push(format!("{id}: channel no longer present")),
         }
-    }
-    clear_original_states();
-    if errors.is_empty() {
-        format!("restored {ok} fan channel(s)")
-    } else {
-        format!("restored {ok}; errors: {}", errors.join(" | "))
-    }
+        false
+    });
+    (ok, errors)
 }
 
 #[cfg(test)]
@@ -609,6 +686,115 @@ mod tests {
         // Self-reference must not loop forever and must not evaluate.
         assert_eq!(cfg.eval_curve("m", &HashMap::new()), None);
         assert!(cfg.mix_would_cycle("m", "m"));
+    }
+
+    /// A fake hwmon tree with one chip: firmware-controlled fan at raw 66, 40°C.
+    fn fake_hwmon(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("cntrl-hwmon-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let chip = root.join("hwmon0");
+        std::fs::create_dir_all(&chip).unwrap();
+        for (file, value) in [
+            ("name", "fakechip"),
+            ("pwm1", "66"),
+            ("pwm1_enable", "2"),
+            ("fan1_input", "900"),
+            ("temp1_input", "40000"),
+        ] {
+            std::fs::write(chip.join(file), format!("{value}\n")).unwrap();
+        }
+        root
+    }
+
+    fn read(root: &std::path::Path, file: &str) -> String {
+        std::fs::read_to_string(root.join("hwmon0").join(file))
+            .unwrap()
+            .trim()
+            .to_string()
+    }
+
+    /// 30°C→20%, 50°C→60% on fakechip/temp1, driving fakechip/pwm1.
+    fn fake_cfg() -> FanCurveConfig {
+        FanCurveConfig {
+            enabled: true,
+            curves: vec![Curve {
+                id: "c".into(),
+                name: "c".into(),
+                kind: CurveKind::Graph {
+                    sensor_id: "fakechip/temp1".into(),
+                    points: vec![pt(30.0, 20), pt(50.0, 60)],
+                },
+            }],
+            assignments: vec![FanAssignment {
+                channel_id: "fakechip/pwm1".into(),
+                curve_id: "c".into(),
+                min_duty_pct: 20,
+                max_duty_pct: 100,
+            }],
+            ..FanCurveConfig::default()
+        }
+    }
+
+    #[test]
+    fn tick_writes_duty_and_engages_manual() {
+        let root = fake_hwmon("write");
+        let d = crate::fan_control::discover_in(&root);
+        let mut state = TickState::default();
+        let summary = tick(&fake_cfg(), &d, &mut state, false);
+        assert_eq!(summary.reports[0].result, ApplyResult::Written);
+        // 40°C is midway 30→50, so 40% → raw 102.
+        assert_eq!(read(&root, "pwm1"), "102");
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lost_sensor_hands_fan_back_then_recovers() {
+        let root = fake_hwmon("sensor");
+        let cfg = fake_cfg();
+        let mut state = TickState::default();
+        tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+
+        // Sensor vanishes (driver reload): firmware takes the fan back.
+        std::fs::remove_file(root.join("hwmon0/temp1_input")).unwrap();
+        let summary = tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        assert_eq!(summary.reports[0].result, ApplyResult::HandedBack);
+        assert_eq!(read(&root, "pwm1_enable"), "2");
+
+        // Sensor returns at the same temperature: the engine must re-engage
+        // even though the target equals the last duty it wrote.
+        std::fs::write(root.join("hwmon0/temp1_input"), "40000\n").unwrap();
+        let summary = tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        assert_eq!(summary.reports[0].result, ApplyResult::Written);
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restore_puts_removed_assignment_back_in_firmware_mode() {
+        let root = fake_hwmon("restore");
+        let cfg = fake_cfg();
+        let d = crate::fan_control::discover_in(&root);
+        let mut states = OriginalStates::new();
+        assert!(capture_into(&mut states, &cfg, &d).unwrap());
+        // Capturing alone must not touch the fan.
+        assert_eq!(read(&root, "pwm1_enable"), "2");
+        tick(&cfg, &d, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+
+        // Still assigned: nothing is released.
+        let assigned = |id: &str| !cfg.assignments.iter().any(|a| a.channel_id == id);
+        assert_eq!(restore_states(&mut states, &d, assigned), (0, vec![]));
+        assert_eq!(states.len(), 1);
+
+        // Assignment gone (or engine disabled): back to automatic, and the PWM
+        // value is left to the firmware rather than rewritten.
+        assert_eq!(restore_states(&mut states, &d, |_| true), (1, vec![]));
+        assert!(states.is_empty());
+        assert_eq!(read(&root, "pwm1_enable"), "2");
+        assert_eq!(read(&root, "pwm1"), "102");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

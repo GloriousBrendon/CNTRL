@@ -119,17 +119,33 @@ fn pid_alive(pid: i32) -> bool {
 pub fn run_loop(mut log: impl FnMut(&FanTickSummary)) {
     STOP.store(false, Ordering::SeqCst);
     let mut state = TickState::default();
+    // Starts true so a state file left by a hard-killed engine is restored
+    // even when the engine comes up disabled.
+    let mut engaged = true;
 
     while !should_stop() {
         let cfg = fan_curves::load();
 
         if cfg.enabled {
-            let discovery = crate::fan_control::discover();
-            if let Err(e) = fan_curves::capture_and_engage(&cfg, &discovery) {
-                eprintln!("cntrl fans: capture/engage failed: {e}");
+            engaged = true;
+            if let Some(msg) = fan_curves::release_unassigned(&cfg) {
+                eprintln!("cntrl fans: curve removed — {msg}");
             }
-            let summary = fan_curves::tick(&cfg, &discovery, &mut state, false);
-            log(&summary);
+            let discovery = crate::fan_control::discover();
+            match fan_curves::capture_originals(&cfg, &discovery) {
+                Ok(()) => {
+                    let summary = fan_curves::tick(&cfg, &discovery, &mut state, false);
+                    log(&summary);
+                }
+                // Without the saved original we could never hand the fan back.
+                Err(e) => eprintln!("cntrl fans: not driving fans, could not save their state: {e}"),
+            }
+        } else if engaged {
+            // Disabled in the UI: hand every fan back rather than leave it in
+            // manual mode at its last duty.
+            engaged = false;
+            state = TickState::default();
+            eprintln!("cntrl fans: engine disabled — {}", fan_curves::restore_all());
         }
 
         // Sleep the tick interval in short slices so stop is responsive.
