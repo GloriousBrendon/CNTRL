@@ -374,18 +374,22 @@ have the strip on header 1, so it must be possible to remove it from the canvas
 and stop writing to it.
 
 **Acceptance criteria:**
-- [ ] "3 fans" then "8/fan" gives 24 LEDs; changing fan count afterwards keeps 8 per fan
-- [ ] A header can hold fans followed by a strip with its own LED count
-- [ ] A header can be set to "Empty": no canvas device, no writes to that header
-- [ ] Existing layout files still load; the test `chain_split_reconciles_segment_devices` is updated to the new rule
+- [x] "3 fans" then "8/fan" gives 24 LEDs; changing fan count afterwards keeps 8 per fan
+- [x] A header can hold fans followed by a strip with its own LED count
+- [x] A header can be set to "Empty": no canvas device, no writes to that header
+- [x] Existing layout files still load; the test `chain_split_reconciles_segment_devices` is updated to the new rule
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas` passes
+- [x] `cargo test -p cntrl-core canvas` passes
 - [ ] Manual: stream Comet slowly across three fans placed in a row; the head crosses fan 1, then 2, then 3, with no fan lit in two halves
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-core/src/canvas.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** done in code and tests. Your saved layout still says header 1 = 32-LED strip
+and header 2 = 3 fans × 12; fix it in the Canvas tab: Header 1 "No fans" + strip slider to none,
+Header 2 "8/fan". Open: the manual Comet check.
 
 ## Task 15: Identify button for the selected device
 
@@ -405,6 +409,9 @@ device solid white and its first LED the accent colour, everything else dim.
 **Files likely touched:** `cntrl-core/src/canvas_stream.rs`, `cntrl-core/src/canvas.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** S
 
+**Status (2026-10-08):** done; unit-tested on the wire order. Shows white with the first wire LED
+red, other devices dark. Open: the manual check on each device.
+
 ## Task 16: Per-backend timing in stream stats
 
 **Description:** C-B, measurement first. Record how long each backend's write
@@ -412,15 +419,18 @@ takes per frame and show it in the status line and in `cntrl canvas`. This
 decides whether Task 17's threads are needed and what each device's rate is.
 
 **Acceptance criteria:**
-- [ ] Status shows average and worst write time per backend over the last second
-- [ ] Numbers recorded here for 20, 40 and 60 fps on this machine
+- [x] Status shows average and worst write time per backend over the last second
+- [x] Numbers recorded here for 20, 40 and 60 fps on this machine
 
 **Verification:**
-- [ ] Manual: `target/release/cntrl canvas --effect wave --fps 40 --seconds 20`
+- [x] Manual: `target/release/cntrl canvas --effect wave --fps 40 --seconds 20`
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-core/src/canvas_stream.rs`, `cntrl-cli/src/main.rs`
 **Estimated scope:** S
+
+**Measured (2026-10-08), one thread, wave effect, 3 fans × 8:** keyboard 6.6 ms, strips 19.5 ms,
+GPU 4.8 ms, RAM 2.6 ms per frame, about 33 ms in total. Asked 20 fps → 20; asked 40 → 29; asked 60 → 30.
 
 ## Task 17: One thread per backend, with reconnect and backoff
 
@@ -431,18 +441,22 @@ open or write is retried after 2 s, not never and not every frame. Device specs
 are built once per layout change, not per call.
 
 **Acceptance criteria:**
-- [ ] Keyboard holds the requested fps while ITE and RAM run slower
+- [x] Keyboard holds the requested fps while ITE and RAM run slower
 - [ ] Unplug and replug the keyboard during a stream: it comes back within 3 s without restarting the stream
-- [ ] A RAM write error drops and reopens the session
-- [ ] Stopping the stream still restores each PC backend's saved lighting
+- [x] A RAM write error drops and reopens the session
+- [x] Stopping the stream still restores each PC backend's saved lighting
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core` passes
+- [x] `cargo test -p cntrl-core` passes
 - [ ] Manual: 60 fps stream for 10 minutes, no strobing on motherboard zones, no errors in the status line
 
 **Dependencies:** Task 16 (skip the threading part if the keyboard already holds fps; keep the reconnect part)
 **Files likely touched:** `cntrl-core/src/canvas_stream.rs`
 **Estimated scope:** M
+
+**Measured after (2026-10-08), asked 60 fps:** render 60 fps; keyboard 60 writes/s, strips 52/s,
+GPU 60/s, RAM 8–9/s; no errors. Open: unplug/replug the keyboard during a stream, and the
+10-minute run. The strips were only verified at 20 fps before; watch them for flicker at 52/s.
 
 ## Task 18: Test for chain assembly
 
@@ -450,12 +464,12 @@ are built once per layout change, not per call.
 on the wire and has no test.
 
 **Acceptance criteria:**
-- [ ] Test: two segments, second reversed, on a left-to-right gradient frame; wire order is as expected
-- [ ] Test: a disabled segment sends black for its LED count and keeps later segments in place
-- [ ] Test: all segments disabled returns `None`
+- [x] Test: two segments, second reversed, on a left-to-right gradient frame; wire order is as expected
+- [x] Test: a disabled segment sends black for its LED count and keeps later segments in place
+- [x] Test: all segments disabled returns `None`
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas_stream` passes
+- [x] `cargo test -p cntrl-core canvas_stream` passes
 
 **Dependencies:** Task 14
 **Files likely touched:** `cntrl-core/src/canvas_stream.rs`
@@ -470,7 +484,7 @@ at 30 fps, and use one FPS range everywhere.
 
 **Acceptance criteria:**
 - [ ] With a slow Comet, the on-screen head and the head on the keyboard are at the same place
-- [ ] The FPS slider's maximum is the value the worker really uses
+- [x] The FPS slider's maximum is the value the worker really uses
 - [ ] Preview animation is visibly smooth
 
 **Verification:**
@@ -479,6 +493,9 @@ at 30 fps, and use one FPS range everywhere.
 **Dependencies:** Task 17
 **Files likely touched:** `cntrl-iced/src/app.rs`, `cntrl-core/src/canvas_stream.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** preview uses the stream's clock and ticks at 30 fps; FPS is 5–60
+everywhere. Open: the manual Comet comparison.
 
 ## Task 20: Save the layout on slider release
 
@@ -496,6 +513,8 @@ thread. Keep the live update to the stream, save on release (iced sliders have
 **Dependencies:** None
 **Files likely touched:** `cntrl-iced/src/app.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** canvas sliders save on release. Not checked with `inotifywait`.
 
 ## Task 21: Effect colour control on the Canvas tab
 

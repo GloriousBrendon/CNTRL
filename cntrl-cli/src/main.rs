@@ -289,8 +289,8 @@ fn run_canvas(
                 .map(|e| format!(" · last error: {e}"))
                 .unwrap_or_default();
             println!(
-                "  {:.0} fps · frame {} · {}{}",
-                stats.actual_fps, stats.frames, stats.backends, err
+                "  {:.0} fps · frame {} · {} · write {}{}",
+                stats.actual_fps, stats.frames, stats.backends, stats.timing, err
             );
         }
         if let Some(d) = deadline {

@@ -146,13 +146,13 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 - [x] Task 13: One install path; resume unit follows `PREFIX`
 
 ### Phase 4: Canvas correctness
-- [ ] Task 14: Chain segments keep their own LED count
-- [ ] Task 15: Identify button for the selected device
-- [ ] Task 16: Per-backend timing in stream stats
-- [ ] Task 17: One thread per backend, with reconnect and backoff
-- [ ] Task 18: Test for chain assembly
-- [ ] Task 19: Preview and hardware share one clock; one FPS range
-- [ ] Task 20: Save the layout on slider release
+- [x] Task 14: Chain segments keep their own LED count
+- [x] Task 15: Identify button for the selected device
+- [x] Task 16: Per-backend timing in stream stats
+- [x] Task 17: One thread per backend, with reconnect and backoff
+- [x] Task 18: Test for chain assembly
+- [x] Task 19: Preview and hardware share one clock; one FPS range
+- [x] Task 20: Save the layout on slider release
 - [ ] Task 21: Effect colour control on the Canvas tab
 - [ ] Task 22: Effect parameters and palettes
 

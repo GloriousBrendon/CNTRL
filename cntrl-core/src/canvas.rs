@@ -160,6 +160,10 @@ impl Default for Chains {
     }
 }
 
+/// LEDs per fan when a header first gets fans (Corsair AR120 and many slim
+/// rings; most others are 12 or 16).
+const DEFAULT_FAN_LEDS: u8 = 8;
+
 impl Chains {
     pub fn header(&self, header: &str) -> &[ChainSegment] {
         match header {
@@ -168,47 +172,61 @@ impl Chains {
         }
     }
 
-    /// Set every fan on `header` to `leds` LEDs (e.g. 8 for Corsair AR120,
-    /// 12 or 16 for most other ARGB rings).
-    pub fn set_fan_leds(&mut self, header: &str, leds: u8) {
-        let segments = match header {
+    fn header_mut(&mut self, header: &str) -> &mut Vec<ChainSegment> {
+        match header {
             CHAIN_DLED1 => &mut self.dled1,
             _ => &mut self.dled2,
-        };
-        for seg in segments.iter_mut() {
+        }
+    }
+
+    /// Set every fan on `header` to `leds` LEDs.
+    pub fn set_fan_leds(&mut self, header: &str, leds: u8) {
+        for seg in self.header_mut(header).iter_mut() {
             if seg.kind == SegmentKind::Fan {
                 seg.leds = leds.max(1);
             }
         }
     }
 
-    /// Split a header's total LEDs into `n` equal fans (remainder goes to
-    /// the last fan), or back to a single strip with `n == 0`.
+    /// Put `n` fans first on `header`'s chain. Each keeps the header's current
+    /// LEDs-per-fan, and a trailing strip stays. The chain's length is whatever
+    /// its segments add up to — a fan's LED count is a property of the fan, not
+    /// a share of some header total.
     pub fn set_fans(&mut self, header: &str, n: u8) {
-        let total = match header {
-            CHAIN_DLED1 => dled1_count(),
-            _ => dled2_count(),
-        };
-        let segments = if n == 0 {
-            vec![ChainSegment {
+        let segments = self.header_mut(header);
+        let per_fan = segments
+            .iter()
+            .find(|s| s.kind == SegmentKind::Fan)
+            .map_or(DEFAULT_FAN_LEDS, |s| s.leds);
+        let strips = segments.iter().filter(|s| s.kind == SegmentKind::Strip).copied();
+        *segments = (0..n)
+            .map(|_| ChainSegment {
+                kind: SegmentKind::Fan,
+                leds: per_fan,
+            })
+            .chain(strips)
+            .collect();
+    }
+
+    /// Set the strip at the end of `header`'s chain to `leds` LEDs; 0 removes
+    /// it. A header with no fans and no strip is empty: nothing is placed on
+    /// the canvas for it and the stream never writes to it.
+    pub fn set_strip_leds(&mut self, header: &str, leds: u8) {
+        let segments = self.header_mut(header);
+        segments.retain(|s| s.kind != SegmentKind::Strip);
+        if leds > 0 {
+            segments.push(ChainSegment {
                 kind: SegmentKind::Strip,
-                leds: total,
-            }]
-        } else {
-            let per = total / n;
-            let mut v: Vec<ChainSegment> = (0..n)
-                .map(|_| ChainSegment {
-                    kind: SegmentKind::Fan,
-                    leds: per,
-                })
-                .collect();
-            v[n as usize - 1].leds += total - per * n;
-            v
-        };
-        match header {
-            CHAIN_DLED1 => self.dled1 = segments,
-            _ => self.dled2 = segments,
+                leds,
+            });
         }
+    }
+
+    pub fn strip_leds(&self, header: &str) -> u8 {
+        self.header(header)
+            .iter()
+            .find(|s| s.kind == SegmentKind::Strip)
+            .map_or(0, |s| s.leds)
     }
 }
 
@@ -740,33 +758,38 @@ mod tests {
     }
 
     #[test]
-    fn chain_split_reconciles_segment_devices() {
+    fn chain_segments_keep_their_own_led_counts() {
         let mut layout = CanvasLayout::default();
         assert!(layout.device("dled1.0").is_some());
-        assert!(layout.device("dled1.1").is_none());
 
-        // Split header 1 into 4 fans: 4 placeable devices, LEDs conserved.
-        layout.chains.set_fans(CHAIN_DLED1, 4);
+        // Three 8-LED fans replace nothing: the default strip stays behind them.
+        layout.chains.set_fans(CHAIN_DLED1, 3);
+        layout.chains.set_strip_leds(CHAIN_DLED1, 0);
         layout.reconcile();
-        for i in 0..4 {
-            let id = format!("dled1.{i}");
-            let spec = layout.spec(&id).expect("fan spec");
-            assert!(spec.is_fan);
-            assert!(layout.device(&id).is_some(), "{id} missing");
-        }
-        let total: usize = layout
-            .chains
-            .dled1
-            .iter()
-            .map(|s| s.leds as usize)
-            .sum();
-        assert_eq!(total, dled1_count() as usize);
+        let leds: Vec<u8> = layout.chains.dled1.iter().map(|s| s.leds).collect();
+        assert_eq!(leds, [8, 8, 8]);
+        assert!(layout.spec("dled1.2").unwrap().is_fan);
 
-        // Back to a single strip: fan devices dropped.
+        // Per-fan LEDs survive a change of fan count.
+        layout.chains.set_fan_leds(CHAIN_DLED1, 12);
+        layout.chains.set_fans(CHAIN_DLED1, 2);
+        layout.chains.set_strip_leds(CHAIN_DLED1, 30);
+        layout.reconcile();
+        let segs: Vec<(SegmentKind, u8)> =
+            layout.chains.dled1.iter().map(|s| (s.kind, s.leds)).collect();
+        assert_eq!(
+            segs,
+            [(SegmentKind::Fan, 12), (SegmentKind::Fan, 12), (SegmentKind::Strip, 30)]
+        );
+        assert!(layout.device("dled1.2").is_some());
+        assert_eq!(layout.spec("dled1.2").unwrap().led_positions.len(), 30);
+
+        // Empty header: no canvas devices at all.
         layout.chains.set_fans(CHAIN_DLED1, 0);
+        layout.chains.set_strip_leds(CHAIN_DLED1, 0);
         layout.reconcile();
-        assert!(layout.device("dled1.1").is_none());
-        assert!(!layout.spec("dled1.0").unwrap().is_fan);
+        assert!(layout.chains.dled1.is_empty());
+        assert!(layout.device("dled1.0").is_none());
     }
 
     #[test]

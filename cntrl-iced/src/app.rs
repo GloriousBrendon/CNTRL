@@ -44,7 +44,7 @@ pub fn run() -> iced::Result {
             if app.tab == ShellTab::Canvas {
                 iced::Subscription::batch([
                     theme_poll,
-                    iced::time::every(Duration::from_millis(100)).map(|_| Message::CanvasTick),
+                    iced::time::every(Duration::from_millis(33)).map(|_| Message::CanvasTick),
                 ])
             } else if app.tab == ShellTab::Fans {
                 iced::Subscription::batch([
@@ -455,6 +455,8 @@ struct App {
     canvas_stream: Option<StreamHandle>,
     /// Canvas tab status line (stream stats / errors / push results).
     canvas_status: String,
+    /// Identify mode: the stream lights only the selected device.
+    canvas_identify: bool,
     // ── Fans tab ──
     /// Discovered temp sensors + fan channels (refreshed on tab entry + poll).
     fan_discovery: cntrl_core::fan_control::FanDiscovery,
@@ -526,6 +528,7 @@ impl App {
             canvas_t0: std::time::Instant::now(),
             canvas_stream: None,
             canvas_status: String::new(),
+            canvas_identify: false,
             fan_readings: fan_discovery.read_all(),
             fan_discovery,
             fan_curve_cfg: cntrl_core::fan_curves::load(),
@@ -565,6 +568,10 @@ impl App {
     fn sync_stream(&self) {
         if let Some(stream) = &self.canvas_stream {
             if let Ok(mut shared) = stream.shared.lock() {
+                shared.identify = self
+                    .canvas_identify
+                    .then(|| self.canvas_selected.clone())
+                    .flatten();
                 shared.layout = self.canvas_layout.clone();
             }
         }
@@ -645,6 +652,10 @@ pub(crate) enum Message {
     CanvasChainFans(&'static str, u8),
     /// Set LEDs per fan for every fan on a header (8 = AR120, 12/16 common).
     CanvasChainFanLeds(&'static str, u8),
+    /// (header, LEDs) — strip at the end of the chain; 0 removes it.
+    CanvasChainStrip(&'static str, f32),
+    /// Toggle: light only the selected device on the hardware.
+    CanvasIdentify,
     // Per-element trim on the selected device.
     CanvasDevBrightness(f32),
     CanvasDevHue(f32),
@@ -857,7 +868,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CanvasTick => {
-            let t = app.canvas_t0.elapsed().as_secs_f32();
+            // While streaming, follow the stream's clock so the preview shows
+            // what the hardware shows.
+            let t0 = app.canvas_stream.as_ref().map_or(app.canvas_t0, |s| s.started);
+            let t = t0.elapsed().as_secs_f32();
             app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t);
             // Surface live stream stats while running.
             if let Some(stream) = &app.canvas_stream {
@@ -868,6 +882,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     );
                     if !stats.backends.is_empty() {
                         line.push_str(&format!(" · {}", stats.backends));
+                    }
+                    if !stats.timing.is_empty() {
+                        line.push_str(&format!(" · write {}", stats.timing));
                     }
                     if let Some(e) = &stats.last_error {
                         line.push_str(&format!(" · last error: {e}"));
@@ -886,29 +903,26 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::CanvasSpeed(v) => {
             app.canvas_layout.settings.speed = v;
             app.sync_stream();
-            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasScale(v) => {
             app.canvas_layout.settings.scale = v;
             app.sync_stream();
-            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasBrightness(v) => {
             app.canvas_layout.settings.brightness = v.clamp(0.0, 100.0);
             app.sync_stream();
-            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasFps(v) => {
-            app.canvas_layout.settings.fps = (v.round() as u32).clamp(5, 40);
+            app.canvas_layout.settings.fps = (v.round() as u32).clamp(5, 60);
             app.sync_stream();
-            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasSelect(id) => {
             app.canvas_selected = id;
+            app.sync_stream();
             Task::none()
         }
         Message::CanvasMove(id, x, y) => {
@@ -966,6 +980,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::CanvasStreamToggle => {
             match app.canvas_stream.take() {
                 Some(stream) => {
+                    app.canvas_identify = false;
                     stream.stop();
                     app.canvas_status = "Stream stopped".into();
                 }
@@ -998,6 +1013,17 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 Ok((r, g, b)) => format!("Keyboard set to #{r:02x}{g:02x}{b:02x}"),
                 Err(e) => format!("Keyboard push failed: {e}"),
             };
+            Task::none()
+        }
+        Message::CanvasIdentify => {
+            app.canvas_identify = !app.canvas_identify;
+            app.sync_stream();
+            Task::none()
+        }
+        Message::CanvasChainStrip(header, leds) => {
+            app.canvas_layout.chains.set_strip_leds(header, leds.round() as u8);
+            app.canvas_layout.reconcile();
+            app.sync_stream();
             Task::none()
         }
         Message::CanvasChainFanLeds(header, leds) => {
@@ -1034,6 +1060,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::CanvasDevReverse => {
             with_selected(app, |d| d.reversed = !d.reversed);
+            app.save_canvas_layout();
             Task::none()
         }
         Message::FanPoll => {
@@ -1187,14 +1214,14 @@ fn sort_points(points: &mut [cntrl_core::fan_curves::CurvePoint]) {
     points.sort_by(|a, b| a.temp_c.partial_cmp(&b.temp_c).unwrap_or(std::cmp::Ordering::Equal));
 }
 
-/// Mutate the selected canvas device, then sync + persist.
+/// Mutate the selected canvas device and sync the stream. Trim sliders persist
+/// on release (`CanvasDragEnd`); other callers save themselves.
 fn with_selected(app: &mut App, f: impl FnOnce(&mut cntrl_core::canvas::PlacedDevice)) {
     if let Some(id) = app.canvas_selected.clone() {
         if let Some(d) = app.canvas_layout.device_mut(&id) {
             f(d);
         }
         app.sync_stream();
-        app.save_canvas_layout();
     }
 }
 
@@ -1403,18 +1430,31 @@ fn labeled_slider<'a>(
     colors: &theme::ThemeColors,
     on_change: impl Fn(f32) -> Message + 'a,
 ) -> Element<'a, Message> {
+    labeled_slider_released(label, value_label, range, value, colors, on_change, None)
+}
+
+/// `labeled_slider` that also reports when the drag ends — for values that
+/// update live but are only worth writing to disk once.
+fn labeled_slider_released<'a>(
+    label: &'a str,
+    value_label: String,
+    range: std::ops::RangeInclusive<f32>,
+    value: f32,
+    colors: &theme::ThemeColors,
+    on_change: impl Fn(f32) -> Message + 'a,
+    on_release: Option<Message>,
+) -> Element<'a, Message> {
     let head = row![
         text(label).size(12).color(muted(colors)),
         Space::new().width(Length::Fill),
         text(value_label).size(12).color(muted(colors)),
     ]
     .align_y(Alignment::Center);
-    column![
-        head,
-        slider(range, value, on_change).style(accent_slider(colors))
-    ]
-    .spacing(5)
-    .into()
+    let mut control = slider(range, value, on_change).style(accent_slider(colors));
+    if let Some(msg) = on_release {
+        control = control.on_release(msg);
+    }
+    column![head, control].spacing(5).into()
 }
 
 /// Page title + muted caption.
@@ -1696,37 +1736,41 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
 
     // ── sliders ──
     let sliders = row![
-        labeled_slider(
+        labeled_slider_released(
             "Speed",
             format!("{:.1}×", s.speed),
             0.1..=3.0,
             s.speed,
             colors,
-            Message::CanvasSpeed
+            Message::CanvasSpeed,
+            Some(Message::CanvasDragEnd),
         ),
-        labeled_slider(
+        labeled_slider_released(
             "Scale",
             format!("{:.1}×", s.scale),
             0.3..=3.0,
             s.scale,
             colors,
-            Message::CanvasScale
+            Message::CanvasScale,
+            Some(Message::CanvasDragEnd),
         ),
-        labeled_slider(
+        labeled_slider_released(
             "Brightness",
             format!("{:.0}%", s.brightness),
             0.0..=100.0,
             s.brightness,
             colors,
-            Message::CanvasBrightness
+            Message::CanvasBrightness,
+            Some(Message::CanvasDragEnd),
         ),
-        labeled_slider(
+        labeled_slider_released(
             "FPS",
             format!("{}", s.fps),
             5.0..=60.0,
             s.fps as f32,
             colors,
-            Message::CanvasFps
+            Message::CanvasFps,
+            Some(Message::CanvasDragEnd),
         ),
     ]
     .spacing(18);
@@ -1772,23 +1816,21 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     // ── ARGB header chains: what's daisy-chained on each header, and how
     // many LEDs each fan has (AR120 = 8; most rings are 12 or 16) ──
     let chain_row = |header: &'static str, label: &'static str| {
+        use cntrl_core::canvas::SegmentKind;
         let segs = app.canvas_layout.chains.header(header);
-        let fans = segs.iter().filter(|s| s.kind == cntrl_core::canvas::SegmentKind::Fan).count() as u8;
-        let is_strip = fans == 0;
-        let fan_leds = segs
-            .iter()
-            .find(|s| s.kind == cntrl_core::canvas::SegmentKind::Fan)
-            .map(|s| s.leds);
+        let fans = segs.iter().filter(|s| s.kind == SegmentKind::Fan).count() as u8;
+        let fan_leds = segs.iter().find(|s| s.kind == SegmentKind::Fan).map(|s| s.leds);
+        let strip = app.canvas_layout.chains.strip_leds(header);
+        let total: u32 = segs.iter().map(|s| u32::from(s.leds)).sum();
         let mut r = row![text(label).size(12).color(muted(&app.colors))].spacing(6);
-        r = r.push(
-            button(text("Strip").size(11))
-                .on_press(Message::CanvasChainFans(header, 0))
-                .padding([5, 9])
-                .style(segment_style(&app.colors, is_strip)),
-        );
-        for n in 2..=4u8 {
+        for n in 0..=4u8 {
+            let name = match n {
+                0 => "No fans".to_string(),
+                1 => "1 fan".to_string(),
+                n => format!("{n} fans"),
+            };
             r = r.push(
-                button(text(format!("{n} fans")).size(11))
+                button(text(name).size(11))
                     .on_press(Message::CanvasChainFans(header, n))
                     .padding([5, 9])
                     .style(segment_style(&app.colors, fans == n)),
@@ -1805,6 +1847,24 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
                 );
             }
         }
+        r = r.push(text("·").size(11).color(muted(&app.colors)));
+        r = r.push(
+            container(labeled_slider_released(
+                "Strip after fans",
+                if strip == 0 { "none".to_string() } else { format!("{strip} LEDs") },
+                0.0..=120.0,
+                f32::from(strip),
+                &app.colors,
+                move |v| Message::CanvasChainStrip(header, v),
+                Some(Message::CanvasDragEnd),
+            ))
+            .width(170),
+        );
+        r = r.push(
+            text(if total == 0 { "empty".to_string() } else { format!("= {total} LEDs") })
+                .size(11)
+                .color(muted(&app.colors)),
+        );
         r.align_y(Alignment::Center)
     };
 
@@ -1846,6 +1906,14 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
                 .style(segment_style(colors, d.reversed)),
         );
     }
+    if selected.is_some() && streaming {
+        sel_controls = sel_controls.push(
+            button(text("Identify").size(12))
+                .on_press(Message::CanvasIdentify)
+                .padding([7, 10])
+                .style(segment_style(colors, app.canvas_identify)),
+        );
+    }
     sel_controls = sel_controls.push(Space::new().width(Length::Fill));
     sel_controls = sel_controls.push(
         button(text("Push to keyboard").size(12))
@@ -1863,29 +1931,32 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     // Per-device trim sliders, visible while something is selected.
     let trim: Element<'_, Message> = match selected {
         Some(d) => row![
-            labeled_slider(
+            labeled_slider_released(
                 "Device brightness",
                 format!("{:.0}%", d.brightness),
                 0.0..=100.0,
                 d.brightness,
                 colors,
-                Message::CanvasDevBrightness
+                Message::CanvasDevBrightness,
+                Some(Message::CanvasDragEnd),
             ),
-            labeled_slider(
+            labeled_slider_released(
                 "Hue shift",
                 format!("{:.0}°", d.hue_shift),
                 0.0..=360.0,
                 d.hue_shift,
                 colors,
-                Message::CanvasDevHue
+                Message::CanvasDevHue,
+                Some(Message::CanvasDragEnd),
             ),
-            labeled_slider(
+            labeled_slider_released(
                 "Saturation",
                 format!("{:.0}%", d.saturation),
                 0.0..=200.0,
                 d.saturation,
                 colors,
-                Message::CanvasDevSaturation
+                Message::CanvasDevSaturation,
+                Some(Message::CanvasDragEnd),
             ),
         ]
         .spacing(18)
@@ -1909,8 +1980,11 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
                 .align_y(Alignment::Center),
             row![
                 card_label("ARGB CHAINS", colors),
-                chain_row(cntrl_core::canvas::CHAIN_DLED1, "Header 1:"),
-                chain_row(cntrl_core::canvas::CHAIN_DLED2, "Header 2:"),
+                column![
+                    chain_row(cntrl_core::canvas::CHAIN_DLED1, "Header 1:"),
+                    chain_row(cntrl_core::canvas::CHAIN_DLED2, "Header 2:"),
+                ]
+                .spacing(6),
             ]
             .spacing(18)
             .align_y(Alignment::Center),
