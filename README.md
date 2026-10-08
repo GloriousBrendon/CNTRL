@@ -80,7 +80,7 @@ Case-fan headers hang off the board's Super I/O chip (ITE `it87`), which Gigabyt
 ```bash
 sudo cntrl fans it87-load --force-id 0x8689     # chip id varies by board (IT8689E here)
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon
-cntrl fans it87-spike --channel it87/pwm1 --value 200 --seconds 30
+cntrl fans it87-spike --channel it8689/pwm1 --value 200 --seconds 30
 ```
 
 The spike drives one header to a fixed duty and watches its tach: **PASS** = the RPM moved and held, so control is real; **FAIL** = the RPM drifted back to baseline (the EC is overriding writes — control isn't usable on this board); **INCONCLUSIVE** = no tach wired. The channel is restored regardless. Motherboard channels always show an **Experimental** badge in the Fans tab.

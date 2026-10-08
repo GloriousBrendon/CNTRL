@@ -16,9 +16,10 @@
 # would silently never run the chmod on a manual trigger.
 SUBSYSTEM=="hwmon", ACTION=="add|change", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chmod 664 /sys%p/pwm* 2>/dev/null; chgrp users /sys%p/pwm* 2>/dev/null'"
 
-# EXPERIMENTAL: motherboard Super I/O headers (ITE it87). The chip is often not
-# auto-detected on Gigabyte boards — load it first with:
-#   sudo cntrl fans it87-load --force-id 0x8689   (id varies by board)
+# EXPERIMENTAL: motherboard Super I/O headers (ITE, `it87` driver). The hwmon
+# name is the chip model (e.g. `it8689`), not the driver name — hence the glob.
+# Load the driver with `sudo modprobe it87` (or, if the chip isn't detected,
+# `sudo cntrl fans it87-load --force-id 0x8689`; id varies by board)
 # and be aware the board's embedded controller may re-assert its own fan curve and
 # ignore PWM writes. Validate with `cntrl fans it87-spike` before trusting it.
-SUBSYSTEM=="hwmon", ACTION=="add|change", ATTR{name}=="it87", RUN+="/bin/sh -c 'chmod 664 /sys%p/pwm* 2>/dev/null; chgrp users /sys%p/pwm* 2>/dev/null'"
+SUBSYSTEM=="hwmon", ACTION=="add|change", ATTR{name}=="it8*", RUN+="/bin/sh -c 'chmod 664 /sys%p/pwm* 2>/dev/null; chgrp users /sys%p/pwm* 2>/dev/null'"

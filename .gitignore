@@ -15,3 +15,9 @@ captures/
 
 # graphify knowledge-graph output (regenerate with /graphify)
 graphify-out/
+
+# Local protocol capture dumps (may hold device serials)
+/capture_*.txt
+/mchose-indexeddb-dump.json
+/mchose_all_effects*
+/profile_dump.bin
