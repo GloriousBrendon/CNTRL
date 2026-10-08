@@ -2693,14 +2693,25 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
 }
 
 /// Pick a sensible default sensor for a channel: prefer one on the same chip.
+/// Sensor a new curve starts on. A GPU fan follows its own chip. Anything else
+/// (CPU cooler, case fans) follows the CPU: a board chip's first sensor is
+/// usually a slow "system" temperature, and a CPU fan tied to it would stay
+/// slow while the CPU heats up.
 fn default_sensor_for(app: &App, channel_id: &str) -> Option<String> {
     let channel = app.fan_discovery.channel(channel_id)?;
-    app.fan_discovery
-        .sensors
-        .iter()
-        .find(|s| s.chip == channel.chip)
-        .or_else(|| app.fan_discovery.sensors.first())
-        .map(|s| s.id.clone())
+    let sensors = &app.fan_discovery.sensors;
+    let own_chip = || sensors.iter().find(|s| s.chip == channel.chip);
+    let cpu = || {
+        sensors
+            .iter()
+            .find(|s| ["k10temp", "coretemp", "zenpower"].contains(&s.chip.as_str()))
+    };
+    let pick = if channel.chip == "amdgpu" {
+        own_chip()
+    } else {
+        cpu().or_else(own_chip)
+    };
+    pick.or_else(|| sensors.first()).map(|s| s.id.clone())
 }
 
 fn placeholder_card<'a>(msg: &str, colors: &theme::ThemeColors) -> Element<'a, Message> {

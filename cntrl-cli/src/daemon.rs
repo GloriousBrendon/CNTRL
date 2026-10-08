@@ -139,15 +139,26 @@ fn fan_watcher() {
             return;
         }
     };
+    // Log a tick only when it wrote something or its problems changed — a
+    // channel that keeps failing would otherwise fill the journal every tick.
+    let mut last_problems = String::new();
     cntrl_core::fan_engine::run_loop(|summary| {
-        let active = summary
+        use cntrl_core::fan_curves::ApplyResult::*;
+        let problems = summary
             .reports
             .iter()
-            .any(|r| {
-                use cntrl_core::fan_curves::ApplyResult::*;
-                matches!(r.result, Written | Error | HandedBack)
-            });
-        if active {
+            .filter(|r| matches!(r.result, Error | Unsupported | HandedBack))
+            .map(|r| format!("{}: {}", r.channel_id, r.reason))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if problems != last_problems {
+            if problems.is_empty() {
+                eprintln!("cntrl daemon: fans: all channels ok");
+            } else {
+                eprintln!("cntrl daemon: fans: {problems}");
+            }
+            last_problems = problems;
+        } else if summary.reports.iter().any(|r| r.result == Written) {
             eprintln!("cntrl daemon: {}", summary.short_message());
         }
     });
