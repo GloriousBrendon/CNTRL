@@ -12,3 +12,6 @@ target
 
 # OpenRGB strace/RE capture logs (native build does not need these)
 captures/
+
+# graphify knowledge-graph output (regenerate with /graphify)
+graphify-out/
