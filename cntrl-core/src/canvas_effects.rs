@@ -6,7 +6,7 @@
 use crate::canvas::Frame;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EffectKind {
     RainbowWave,
     Plasma,
@@ -47,19 +47,62 @@ impl EffectKind {
         }
     }
 
+    /// Which controls this effect actually reads — the UI shows only these.
+    pub fn controls(self) -> EffectControls {
+        let colors = match self {
+            EffectKind::Ripple | EffectKind::Comet => 1,
+            EffectKind::RainbowWave | EffectKind::Plasma | EffectKind::Aurora => 0,
+        };
+        EffectControls {
+            speed: true,
+            scale: true,
+            colors,
+        }
+    }
+
     pub fn from_slug(s: &str) -> Option<Self> {
         let t = s.trim().to_ascii_lowercase();
         Self::all().into_iter().find(|e| e.slug() == t)
     }
 }
 
-/// Effect inputs. `speed`/`scale` are multipliers around 1.0; `color` feeds
-/// the color-based effects (Ripple, Comet).
-#[derive(Debug, Clone, Copy)]
+/// The controls an effect declares (see [`EffectKind::controls`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectControls {
+    pub speed: bool,
+    pub scale: bool,
+    /// How many palette colors the effect uses (0 = it makes its own).
+    pub colors: usize,
+}
+
+/// Starting palette; also pads a palette when an effect wants more colors.
+pub const DEFAULT_PALETTE: [[u8; 3]; 6] = [
+    [216, 143, 146],
+    [0, 179, 255],
+    [140, 82, 255],
+    [0, 220, 130],
+    [255, 170, 0],
+    [255, 60, 90],
+];
+
+/// Effect inputs. `speed`/`scale` are multipliers around 1.0; `palette` feeds
+/// the color-based effects, in the order the user arranged it.
+#[derive(Debug, Clone)]
 pub struct EffectParams {
     pub speed: f32,
     pub scale: f32,
-    pub color: [u8; 3],
+    pub palette: Vec<[u8; 3]>,
+}
+
+impl EffectParams {
+    /// Palette color `i`, falling back to the default palette when the user's
+    /// is shorter than the effect needs.
+    pub fn color(&self, i: usize) -> [u8; 3] {
+        self.palette
+            .get(i)
+            .copied()
+            .unwrap_or(DEFAULT_PALETTE[i % DEFAULT_PALETTE.len()])
+    }
 }
 
 impl Default for EffectParams {
@@ -67,7 +110,7 @@ impl Default for EffectParams {
         Self {
             speed: 1.0,
             scale: 1.0,
-            color: [216, 143, 146],
+            palette: vec![DEFAULT_PALETTE[0]],
         }
     }
 }
@@ -146,7 +189,7 @@ fn plasma(frame: &mut Frame, t: f32, p: &EffectParams) {
 fn ripple(frame: &mut Frame, t: f32, p: &EffectParams) {
     let ts = t * p.speed;
     let k = 14.0 * p.scale;
-    let base = rgb_to_hue(p.color);
+    let base = rgb_to_hue(p.color(0));
     let (w, h) = (frame.width, frame.height);
     for y in 0..h {
         for x in 0..w {
@@ -171,7 +214,7 @@ fn comet(frame: &mut Frame, t: f32, p: &EffectParams) {
     } else {
         (2.0 - phase, -1.0f32)
     };
-    let base = rgb_to_hue(p.color);
+    let base = rgb_to_hue(p.color(0));
     let trail = 0.18 / p.scale.max(0.2);
     for y in 0..h {
         for x in 0..w {

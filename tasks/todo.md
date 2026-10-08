@@ -524,7 +524,7 @@ accent" toggle.
 
 **Acceptance criteria:**
 - [ ] Changing the colour changes Ripple and Comet on preview and hardware at once
-- [ ] The colour is saved with the layout
+- [x] The colour is saved with the layout
 - [ ] "Use theme accent" follows the theme file
 
 **Verification:**
@@ -534,6 +534,10 @@ accent" toggle.
 **Files likely touched:** `cntrl-iced/src/app.rs`, `cntrl-core/src/canvas.rs`
 **Estimated scope:** S
 
+**Status (2026-10-08):** done. Swatches plus hue/saturation/lightness sliders (the Lighting
+tab's own controls are tied to the keyboard profile, so the sliders were reused, not the card),
+and a "first colour follows the theme accent" box. Open: the two manual checks.
+
 ## Task 22: Effect parameters and palettes
 
 **Description:** Today every effect shares speed, scale and one colour. A large
@@ -542,17 +546,23 @@ palette, direction, density) and the tab to draw them from that list, instead
 of one hand-written slider row. Do this before adding many effects.
 
 **Acceptance criteria:**
-- [ ] Each effect declares its parameters; the Canvas tab builds its controls from the declaration
+- [x] Each effect declares its parameters; the Canvas tab builds its controls from the declaration
 - [ ] A palette (2–6 colours) is a parameter type, with "theme accent" as a source
-- [ ] Old layout files still load; values are saved per effect
+- [x] Old layout files still load; values are saved per effect
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas_effects` passes
+- [x] `cargo test -p cntrl-core canvas_effects` passes
 - [ ] Manual: switch between two effects, each keeps its own settings
 
 **Dependencies:** Task 21
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`, `cntrl-core/src/canvas.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** each effect declares speed / scale / number of colours and the tab
+shows only those. Speed, scale and colours are remembered per effect; old layout files migrate
+(tested). Kept deliberately small: no direction or density types yet, they arrive with the
+first effect that needs them (Task 27/28). The palette holds as many colours as the effect
+declares; today that is at most one. Open: the manual check.
 
 ## Checkpoint C: Canvas maps correctly and stays smooth
 - [ ] Tests pass, build clean

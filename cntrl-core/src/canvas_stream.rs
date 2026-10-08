@@ -17,7 +17,7 @@
 //! preview and the hardware always agree.
 
 use crate::canvas::{self, CanvasLayout, Frame};
-use crate::canvas_effects::{self, EffectParams};
+use crate::canvas_effects;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -306,12 +306,8 @@ fn worker(
             (shared.layout.clone(), shared.identify.clone())
         };
         let identify = identify.as_deref();
-        let s = layout.settings;
-        let params = EffectParams {
-            speed: s.speed,
-            scale: s.scale,
-            color: s.color,
-        };
+        let s = &layout.settings;
+        let params = s.params();
         let t = t0.elapsed().as_secs_f32();
         canvas_effects::render(s.effect, &mut frame, t, &params);
 
@@ -471,13 +467,9 @@ pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], 
         .filter(|d| d.enabled)
         .ok_or_else(|| "keyboard is disabled on the canvas".to_string())?;
     let spec = layout.spec(canvas::DEV_KEYBOARD).expect("keyboard spec");
-    let s = layout.settings;
+    let s = &layout.settings;
     let mut frame = Frame::canvas_sized();
-    let params = EffectParams {
-        speed: s.speed,
-        scale: s.scale,
-        color: s.color,
-    };
+    let params = s.params();
     canvas_effects::render(s.effect, &mut frame, t, &params);
     let avg = canvas::average_device_color(&frame, &spec, placed, s.brightness);
     // Fast protocol client first; legacy replay pipeline as fallback.

@@ -17,13 +17,9 @@ pub const PREVIEW_H: usize = 180;
 
 /// Render the current effect into an iced image handle for the backdrop.
 pub fn render_preview(layout: &CanvasLayout, t: f32) -> Handle {
-    let s = layout.settings;
+    let s = &layout.settings;
     let mut frame = cntrl_core::canvas::Frame::new(PREVIEW_W, PREVIEW_H);
-    let params = cntrl_core::canvas_effects::EffectParams {
-        speed: s.speed,
-        scale: s.scale,
-        color: s.color,
-    };
+    let params = s.params();
     cntrl_core::canvas_effects::render(s.effect, &mut frame, t, &params);
     Handle::from_rgba(PREVIEW_W as u32, PREVIEW_H as u32, frame.to_rgba())
 }

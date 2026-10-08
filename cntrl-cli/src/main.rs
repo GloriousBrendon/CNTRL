@@ -253,8 +253,10 @@ fn run_canvas(
 
     let mut layout = cntrl_core::canvas::load_layout();
     if let Some(name) = effect {
-        layout.settings.effect = EffectKind::from_slug(name)
-            .ok_or_else(|| format!("unknown effect {name:?}; see `cntrl canvas --list`"))?;
+        layout.settings.set_effect(
+            EffectKind::from_slug(name)
+                .ok_or_else(|| format!("unknown effect {name:?}; see `cntrl canvas --list`"))?,
+        );
     }
     if let Some(f) = fps {
         layout.settings.fps = f.clamp(1, 60);

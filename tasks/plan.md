@@ -153,8 +153,8 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 - [x] Task 18: Test for chain assembly
 - [x] Task 19: Preview and hardware share one clock; one FPS range
 - [x] Task 20: Save the layout on slider release
-- [ ] Task 21: Effect colour control on the Canvas tab
-- [ ] Task 22: Effect parameters and palettes
+- [x] Task 21: Effect colour control on the Canvas tab
+- [x] Task 22: Effect parameters and palettes
 
 ### Checkpoint C: Canvas maps correctly and stays smooth
 

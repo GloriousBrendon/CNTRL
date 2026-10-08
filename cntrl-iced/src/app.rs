@@ -69,6 +69,7 @@ fn boot() -> (App, Task<Message>) {
     let slot = read_startup_slot();
     let profile = load_profile_slot(slot).unwrap_or_else(|_| profile::default_profile_document());
     let mut app = App::from_profile(profile, slot);
+    app.select_canvas_color(0);
     app.theme_mtime = std::fs::metadata(theme::theme_file_path())
         .ok()
         .and_then(|m| m.modified().ok());
@@ -457,6 +458,10 @@ struct App {
     canvas_status: String,
     /// Identify mode: the stream lights only the selected device.
     canvas_identify: bool,
+    /// Which effect color is being edited, and its HSL (kept so hue survives
+    /// a trip through grey/black).
+    canvas_color_idx: usize,
+    canvas_hsl: (f32, f32, f32),
     // ── Fans tab ──
     /// Discovered temp sensors + fan channels (refreshed on tab entry + poll).
     fan_discovery: cntrl_core::fan_control::FanDiscovery,
@@ -529,6 +534,8 @@ impl App {
             canvas_stream: None,
             canvas_status: String::new(),
             canvas_identify: false,
+            canvas_color_idx: 0,
+            canvas_hsl: (0.0, 0.0, 0.0),
             fan_readings: fan_discovery.read_all(),
             fan_discovery,
             fan_curve_cfg: cntrl_core::fan_curves::load(),
@@ -555,6 +562,15 @@ impl App {
             .assignments
             .iter()
             .find(|a| a.channel_id == channel_id)
+    }
+
+    /// Point the color editor at effect color `idx` (clamped to the palette).
+    fn select_canvas_color(&mut self, idx: usize) {
+        let palette = &self.canvas_layout.settings.palette;
+        self.canvas_color_idx = idx.min(palette.len().saturating_sub(1));
+        if let Some(c) = palette.get(self.canvas_color_idx) {
+            self.canvas_hsl = rgb_to_hsl_f32(c[0], c[1], c[2]);
+        }
     }
 
     /// Re-scan hwmon and snapshot its live values for the Fans tab.
@@ -656,6 +672,11 @@ pub(crate) enum Message {
     CanvasChainStrip(&'static str, f32),
     /// Toggle: light only the selected device on the hardware.
     CanvasIdentify,
+    /// Pick which effect color the HSL sliders edit.
+    CanvasColorSelect(usize),
+    /// (0 hue° | 1 saturation% | 2 lightness%, value) for the selected color.
+    CanvasColorHsl(u8, f32),
+    CanvasThemeAccent(bool),
     // Per-element trim on the selected device.
     CanvasDevBrightness(f32),
     CanvasDevHue(f32),
@@ -894,8 +915,32 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::CanvasColorSelect(i) => {
+            app.select_canvas_color(i);
+            Task::none()
+        }
+        Message::CanvasColorHsl(part, v) => {
+            match part {
+                0 => app.canvas_hsl.0 = v,
+                1 => app.canvas_hsl.1 = v / 100.0,
+                _ => app.canvas_hsl.2 = v / 100.0,
+            }
+            let (r, g, b) = hsl_to_rgb(app.canvas_hsl.0, app.canvas_hsl.1, app.canvas_hsl.2);
+            if let Some(c) = app.canvas_layout.settings.palette.get_mut(app.canvas_color_idx) {
+                *c = [r, g, b];
+            }
+            app.sync_stream();
+            Task::none()
+        }
+        Message::CanvasThemeAccent(on) => {
+            app.canvas_layout.settings.accent_from_theme = on;
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
         Message::CanvasEffect(kind) => {
-            app.canvas_layout.settings.effect = kind;
+            app.canvas_layout.settings.set_effect(kind);
+            app.select_canvas_color(0);
             app.sync_stream();
             app.save_canvas_layout();
             Task::none()
@@ -966,7 +1011,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CanvasResetLayout => {
-            let settings = app.canvas_layout.settings;
+            let settings = app.canvas_layout.settings.clone();
             app.canvas_layout = CanvasLayout {
                 settings,
                 ..CanvasLayout::default()
@@ -1693,7 +1738,8 @@ fn target_chip<'a>(
 
 fn canvas_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
-    let s = app.canvas_layout.settings;
+    let s = &app.canvas_layout.settings;
+    let controls_for = s.effect.controls();
     let streaming = app.canvas_stream.is_some();
 
     let header = row![
@@ -1735,8 +1781,11 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     }
 
     // ── sliders ──
-    let sliders = row![
-        labeled_slider_released(
+    // ── sliders: only the ones the active effect declares, then the
+    // canvas-wide ones ──
+    let mut sliders = row![].spacing(18);
+    if controls_for.speed {
+        sliders = sliders.push(labeled_slider_released(
             "Speed",
             format!("{:.1}×", s.speed),
             0.1..=3.0,
@@ -1744,8 +1793,10 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             colors,
             Message::CanvasSpeed,
             Some(Message::CanvasDragEnd),
-        ),
-        labeled_slider_released(
+        ));
+    }
+    if controls_for.scale {
+        sliders = sliders.push(labeled_slider_released(
             "Scale",
             format!("{:.1}×", s.scale),
             0.3..=3.0,
@@ -1753,8 +1804,10 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             colors,
             Message::CanvasScale,
             Some(Message::CanvasDragEnd),
-        ),
-        labeled_slider_released(
+        ));
+    }
+    sliders = sliders
+        .push(labeled_slider_released(
             "Brightness",
             format!("{:.0}%", s.brightness),
             0.0..=100.0,
@@ -1762,8 +1815,8 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             colors,
             Message::CanvasBrightness,
             Some(Message::CanvasDragEnd),
-        ),
-        labeled_slider_released(
+        ))
+        .push(labeled_slider_released(
             "FPS",
             format!("{}", s.fps),
             5.0..=60.0,
@@ -1771,9 +1824,51 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             colors,
             Message::CanvasFps,
             Some(Message::CanvasDragEnd),
-        ),
-    ]
-    .spacing(18);
+        ));
+
+    // ── effect colors: one swatch per color the effect uses; the selected
+    // one is edited with the HSL sliders ──
+    let palette_row: Element<'_, Message> = if controls_for.colors == 0 {
+        Space::new().height(0).into()
+    } else {
+        let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
+        let mut r = row![text("Colors").size(12).color(muted(colors))]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        for (i, c) in s.palette.iter().take(controls_for.colors).enumerate() {
+            r = r.push(
+                button(Space::new().width(26).height(26))
+                    .on_press(Message::CanvasColorSelect(i))
+                    .style(swatch_button_style(
+                        (c[0], c[1], c[2]),
+                        i == app.canvas_color_idx,
+                        accent,
+                    )),
+            );
+        }
+        let (h, sat, l) = app.canvas_hsl;
+        let hsl_slider = |label, value_label, range, value, part| {
+            labeled_slider_released(
+                label,
+                value_label,
+                range,
+                value,
+                colors,
+                move |v| Message::CanvasColorHsl(part, v),
+                Some(Message::CanvasDragEnd),
+            )
+        };
+        r.push(hsl_slider("Hue", format!("{h:.0}°"), 0.0..=360.0, h, 0))
+            .push(hsl_slider("Saturation", format!("{:.0}%", sat * 100.0), 0.0..=100.0, sat * 100.0, 1))
+            .push(hsl_slider("Lightness", format!("{:.0}%", l * 100.0), 0.0..=100.0, l * 100.0, 2))
+            .push(
+                checkbox(s.accent_from_theme)
+                    .label("First color follows the theme accent")
+                    .on_toggle(Message::CanvasThemeAccent),
+            )
+            .spacing(14)
+            .into()
+    };
 
     // ── device chips: toggle each device's canvas participation. Each chip
     // carries the same identifying color as the device's border on the canvas ──
@@ -1974,6 +2069,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             .align_y(Alignment::Center),
             effect_row,
             sliders,
+            palette_row,
             hairline_divider(colors),
             row![card_label("DEVICES", colors), chips]
                 .spacing(14)

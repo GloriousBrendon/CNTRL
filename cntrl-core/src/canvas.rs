@@ -8,6 +8,7 @@
 //! know about each other, so one animation flows across the keyboard, ARGB
 //! strips, GPU and RAM in physical-desk order.
 
+use crate::canvas_effects::EffectKind;
 use crate::keyboard_layout;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -469,29 +470,122 @@ fn default_100() -> f32 {
     100.0
 }
 
-/// Canvas-wide effect settings that persist with the layout.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// The per-effect part of the settings, remembered for each effect so
+/// switching back to one restores how it was tuned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectValues {
+    pub speed: f32,
+    pub scale: f32,
+    pub palette: Vec<[u8; 3]>,
+}
+
+/// Canvas-wide effect settings that persist with the layout. `speed`, `scale`
+/// and `palette` belong to the active effect; other effects' values wait in
+/// `saved`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EffectSettings {
-    pub effect: crate::canvas_effects::EffectKind,
+    pub effect: EffectKind,
     pub speed: f32,
     pub scale: f32,
     /// 0–100.
     pub brightness: f32,
-    pub color: [u8; 3],
+    pub palette: Vec<[u8; 3]>,
+    /// Single color of pre-palette layout files; folded into `palette` on load.
+    #[serde(skip_serializing)]
+    color: Option<[u8; 3]>,
+    /// Use the desktop theme's accent as the first palette color.
+    pub accent_from_theme: bool,
     pub fps: u32,
+    pub saved: std::collections::BTreeMap<EffectKind, EffectValues>,
 }
 
 impl Default for EffectSettings {
     fn default() -> Self {
         Self {
-            effect: crate::canvas_effects::EffectKind::RainbowWave,
+            effect: EffectKind::RainbowWave,
             speed: 1.0,
             scale: 1.0,
             brightness: 100.0,
-            color: [216, 143, 146],
+            palette: Vec::new(),
+            color: None,
+            accent_from_theme: false,
             fps: 20,
+            saved: Default::default(),
         }
     }
+}
+
+impl EffectSettings {
+    /// Switch effect: stash the current effect's values, bring back the new
+    /// one's (or defaults the first time).
+    pub fn set_effect(&mut self, effect: EffectKind) {
+        if effect == self.effect {
+            return;
+        }
+        let stashed = EffectValues {
+            speed: self.speed,
+            scale: self.scale,
+            palette: std::mem::take(&mut self.palette),
+        };
+        self.saved.insert(self.effect, stashed);
+        let v = self.saved.remove(&effect).unwrap_or(EffectValues {
+            speed: 1.0,
+            scale: 1.0,
+            palette: Vec::new(),
+        });
+        (self.effect, self.speed, self.scale, self.palette) = (effect, v.speed, v.scale, v.palette);
+        self.normalize();
+    }
+
+    /// Fold in the legacy color and make the palette exactly as long as the
+    /// active effect needs (kept colors first, defaults for the rest).
+    fn normalize(&mut self) {
+        if let Some(c) = self.color.take() {
+            if self.palette.is_empty() {
+                self.palette.push(c);
+            }
+        }
+        let want = self.effect.controls().colors;
+        for i in self.palette.len()..want {
+            self.palette.push(crate::canvas_effects::DEFAULT_PALETTE[i % 6]);
+        }
+        // Extra colors are kept (an effect with fewer simply ignores them).
+    }
+
+    /// What the effect functions take. Resolves the theme accent if enabled.
+    pub fn params(&self) -> crate::canvas_effects::EffectParams {
+        let mut palette = self.palette.clone();
+        if self.accent_from_theme {
+            if let (Some(first), Some(accent)) = (palette.first_mut(), theme_accent()) {
+                *first = accent;
+            }
+        }
+        crate::canvas_effects::EffectParams {
+            speed: self.speed,
+            scale: self.scale,
+            palette,
+        }
+    }
+}
+
+/// The theme accent, re-read from disk at most once a second (this is called
+/// per rendered frame).
+fn theme_accent() -> Option<[u8; 3]> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static CACHE: Mutex<Option<(Instant, Option<[u8; 3]>)>> = Mutex::new(None);
+    let mut cache = CACHE.lock().ok()?;
+    if let Some((at, accent)) = *cache {
+        if at.elapsed() < Duration::from_secs(1) {
+            return accent;
+        }
+    }
+    let accent = crate::theme_sync::current_theme_color()
+        .ok()
+        .map(|(r, g, b)| [r, g, b]);
+    *cache = Some((Instant::now(), accent));
+    accent
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -550,6 +644,7 @@ impl CanvasLayout {
     /// Drop placements for unknown ids and add defaults for missing devices,
     /// so layouts survive catalog and chain-config changes.
     pub fn reconcile(&mut self) {
+        self.settings.normalize();
         let specs = all_specs(&self.chains);
         self.devices
             .retain(|d| specs.iter().any(|s| s.id == d.id));
@@ -790,6 +885,33 @@ mod tests {
         layout.reconcile();
         assert!(layout.chains.dled1.is_empty());
         assert!(layout.device("dled1.0").is_none());
+    }
+
+    #[test]
+    fn effect_settings_migrate_and_remember_per_effect() {
+        // A pre-palette layout file: single `color`, no palette/saved keys.
+        let old = r#"{"effect":"Comet","speed":1.1,"scale":3.0,"brightness":100.0,
+                      "color":[1,2,3],"fps":40}"#;
+        let mut s: EffectSettings = serde_json::from_str(old).unwrap();
+        s.normalize();
+        assert_eq!(s.palette, vec![[1, 2, 3]]);
+        assert_eq!(s.params().color(0), [1, 2, 3]);
+
+        // Switching away and back restores Comet's own tuning.
+        s.set_effect(EffectKind::Plasma);
+        assert_eq!((s.speed, s.scale), (1.0, 1.0));
+        s.speed = 2.5;
+        s.set_effect(EffectKind::Comet);
+        assert_eq!((s.speed, s.scale), (1.1, 3.0));
+        assert_eq!(s.palette, vec![[1, 2, 3]]);
+        s.set_effect(EffectKind::Plasma);
+        assert_eq!(s.speed, 2.5);
+
+        // The legacy key is not written back; the new shape round-trips.
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("\"color\""));
+        let back: EffectSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.saved[&EffectKind::Comet].palette, vec![[1, 2, 3]]);
     }
 
     #[test]
