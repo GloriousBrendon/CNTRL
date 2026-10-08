@@ -8,61 +8,155 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum EffectKind {
+    // Everyday
+    Solid,
+    Gradient,
+    RadialGradient,
+    Breathing,
+    SpectrumCycle,
     RainbowWave,
+    RainbowRadial,
+    RainbowSpiral,
+    ColorWipe,
+    // Ambient
     Plasma,
-    Ripple,
-    Comet,
     Aurora,
+    Lava,
+    Fire,
+    Waves,
+    Twinkle,
+    Rain,
+    Matrix,
+    // Motion
+    Ripple,
+    NeonPulse,
+    Comet,
+    Scanner,
+    RadarSweep,
+    BouncingBalls,
+}
+
+const WHITE: [u8; 3] = [255, 255, 255];
+const RAIN_BLUE: [u8; 3] = [60, 140, 255];
+const MATRIX_GREEN: [u8; 3] = [0, 255, 70];
+
+/// Everything the UI and CLI need to know about one effect.
+struct Meta {
+    slug: &'static str,
+    label: &'static str,
+    speed: bool,
+    scale: bool,
+    angle: bool,
+    /// Palette colors the effect reads; `own` are its defaults for them
+    /// (the shared default palette fills any it doesn't name).
+    colors: usize,
+    own: &'static [[u8; 3]],
+}
+
+const fn meta(slug: &'static str, label: &'static str, colors: usize) -> Meta {
+    Meta {
+        slug,
+        label,
+        speed: true,
+        scale: true,
+        angle: false,
+        colors,
+        own: &[],
+    }
 }
 
 impl EffectKind {
-    pub fn all() -> [EffectKind; 5] {
-        [
-            EffectKind::RainbowWave,
-            EffectKind::Plasma,
-            EffectKind::Ripple,
-            EffectKind::Comet,
-            EffectKind::Aurora,
-        ]
+    pub const ALL: [EffectKind; 23] = [
+        EffectKind::Solid,
+        EffectKind::Gradient,
+        EffectKind::RadialGradient,
+        EffectKind::Breathing,
+        EffectKind::SpectrumCycle,
+        EffectKind::RainbowWave,
+        EffectKind::RainbowRadial,
+        EffectKind::RainbowSpiral,
+        EffectKind::ColorWipe,
+        EffectKind::Plasma,
+        EffectKind::Aurora,
+        EffectKind::Lava,
+        EffectKind::Fire,
+        EffectKind::Waves,
+        EffectKind::Twinkle,
+        EffectKind::Rain,
+        EffectKind::Matrix,
+        EffectKind::Ripple,
+        EffectKind::NeonPulse,
+        EffectKind::Comet,
+        EffectKind::Scanner,
+        EffectKind::RadarSweep,
+        EffectKind::BouncingBalls,
+    ];
+
+    pub fn all() -> [EffectKind; 23] {
+        Self::ALL
+    }
+
+    fn meta(self) -> Meta {
+        use EffectKind::*;
+        match self {
+            Solid => Meta { speed: false, scale: false, ..meta("solid", "Solid", 1) },
+            Gradient => Meta { angle: true, ..meta("gradient", "Gradient", 3) },
+            RadialGradient => meta("radial", "Radial Gradient", 3),
+            Breathing => Meta { scale: false, ..meta("breathing", "Breathing", 1) },
+            SpectrumCycle => Meta { scale: false, ..meta("spectrum", "Spectrum Cycle", 0) },
+            RainbowWave => Meta { angle: true, ..meta("wave", "Rainbow Wave", 0) },
+            RainbowRadial => meta("rainbow-radial", "Rainbow Radial", 0),
+            RainbowSpiral => meta("spiral", "Rainbow Spiral", 0),
+            ColorWipe => Meta { scale: false, angle: true, ..meta("wipe", "Color Wipe", 3) },
+            Plasma => meta("plasma", "Plasma", 0),
+            Aurora => meta("aurora", "Aurora", 0),
+            Lava => meta("lava", "Lava", 3),
+            Fire => meta("fire", "Fire", 0),
+            Waves => meta("waves", "Waves", 2),
+            Twinkle => Meta { own: &[WHITE], ..meta("twinkle", "Twinkle", 1) },
+            Rain => Meta { own: &[RAIN_BLUE], ..meta("rain", "Rain", 1) },
+            Matrix => Meta { own: &[MATRIX_GREEN], ..meta("matrix", "Matrix", 1) },
+            Ripple => meta("ripple", "Ripple", 1),
+            NeonPulse => meta("neon", "Neon Pulse", 2),
+            Comet => meta("comet", "Comet", 1),
+            Scanner => Meta { angle: true, ..meta("scanner", "Scanner", 1) },
+            RadarSweep => meta("radar", "Radar Sweep", 1),
+            BouncingBalls => meta("balls", "Bouncing Balls", 3),
+        }
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            EffectKind::RainbowWave => "Rainbow Wave",
-            EffectKind::Plasma => "Plasma",
-            EffectKind::Ripple => "Ripple",
-            EffectKind::Comet => "Comet",
-            EffectKind::Aurora => "Aurora",
-        }
+        self.meta().label
     }
 
     /// CLI-friendly id (`cntrl canvas --effect <slug>`).
     pub fn slug(self) -> &'static str {
-        match self {
-            EffectKind::RainbowWave => "wave",
-            EffectKind::Plasma => "plasma",
-            EffectKind::Ripple => "ripple",
-            EffectKind::Comet => "comet",
-            EffectKind::Aurora => "aurora",
-        }
+        self.meta().slug
     }
 
     /// Which controls this effect actually reads — the UI shows only these.
     pub fn controls(self) -> EffectControls {
-        let colors = match self {
-            EffectKind::Ripple | EffectKind::Comet => 1,
-            EffectKind::RainbowWave | EffectKind::Plasma | EffectKind::Aurora => 0,
-        };
+        let m = self.meta();
         EffectControls {
-            speed: true,
-            scale: true,
-            colors,
+            speed: m.speed,
+            scale: m.scale,
+            angle: m.angle,
+            colors: m.colors,
         }
+    }
+
+    /// Default for palette color `i` of this effect.
+    pub fn default_color(self, i: usize) -> [u8; 3] {
+        self.meta()
+            .own
+            .get(i)
+            .copied()
+            .unwrap_or(DEFAULT_PALETTE[i % DEFAULT_PALETTE.len()])
     }
 
     pub fn from_slug(s: &str) -> Option<Self> {
         let t = s.trim().to_ascii_lowercase();
-        Self::all().into_iter().find(|e| e.slug() == t)
+        Self::ALL.into_iter().find(|e| e.slug() == t)
     }
 }
 
@@ -71,6 +165,8 @@ impl EffectKind {
 pub struct EffectControls {
     pub speed: bool,
     pub scale: bool,
+    /// Direction of travel, in degrees.
+    pub angle: bool,
     /// How many palette colors the effect uses (0 = it makes its own).
     pub colors: usize,
 }
@@ -91,6 +187,8 @@ pub const DEFAULT_PALETTE: [[u8; 3]; 6] = [
 pub struct EffectParams {
     pub speed: f32,
     pub scale: f32,
+    /// Degrees; 0 = left to right, 90 = top to bottom.
+    pub angle: f32,
     pub palette: Vec<[u8; 3]>,
 }
 
@@ -110,20 +208,321 @@ impl Default for EffectParams {
         Self {
             speed: 1.0,
             scale: 1.0,
-            palette: vec![DEFAULT_PALETTE[0]],
+            angle: 0.0,
+            palette: DEFAULT_PALETTE.to_vec(),
         }
     }
 }
 
 /// Render one frame of `kind` at time `t` (seconds since stream start).
 pub fn render(kind: EffectKind, frame: &mut Frame, t: f32, params: &EffectParams) {
+    use EffectKind::*;
     match kind {
-        EffectKind::RainbowWave => rainbow_wave(frame, t, params),
-        EffectKind::Plasma => plasma(frame, t, params),
-        EffectKind::Ripple => ripple(frame, t, params),
-        EffectKind::Comet => comet(frame, t, params),
-        EffectKind::Aurora => aurora(frame, t, params),
+        RainbowWave => rainbow_wave(frame, t, params),
+        Plasma => plasma(frame, t, params),
+        Ripple => ripple(frame, t, params),
+        Comet => comet(frame, t, params),
+        Aurora => aurora(frame, t, params),
+        Solid => fill(frame, |_, _| params.color(0)),
+        Gradient => gradient(frame, t, params),
+        RadialGradient => radial_gradient(frame, t, params),
+        Breathing => breathing(frame, t, params),
+        SpectrumCycle => {
+            let c = hsv_to_rgb(t * params.speed * 40.0, 1.0, 1.0);
+            fill(frame, |_, _| c)
+        }
+        RainbowRadial => rainbow_radial(frame, t, params),
+        RainbowSpiral => rainbow_spiral(frame, t, params),
+        ColorWipe => color_wipe(frame, t, params),
+        Lava => lava(frame, t, params),
+        Fire => fire(frame, t, params),
+        Waves => waves(frame, t, params),
+        Twinkle => twinkle(frame, t, params),
+        Rain => rain(frame, t, params, false),
+        Matrix => rain(frame, t, params, true),
+        NeonPulse => neon_pulse(frame, t, params),
+        Scanner => scanner(frame, t, params),
+        RadarSweep => radar_sweep(frame, t, params),
+        BouncingBalls => bouncing_balls(frame, t, params),
     }
+}
+
+// ── shared building blocks ───────────────────────────────────────────
+
+/// Canvas width / height: multiply a normalized x-distance by this (or use
+/// [`centered`]) so circles come out round.
+const ASPECT: f32 = 16.0 / 9.0;
+
+/// Fill every pixel from `f(nx, ny)`, both in [0,1).
+fn fill(frame: &mut Frame, f: impl Fn(f32, f32) -> [u8; 3]) {
+    let (w, h) = (frame.width, frame.height);
+    for y in 0..h {
+        for x in 0..w {
+            let (nx, ny) = norm_xy(frame, x, y);
+            frame.set(x, y, f(nx, ny));
+        }
+    }
+}
+
+/// (dx, dy) from the canvas center in height units — isotropic.
+fn centered(nx: f32, ny: f32) -> (f32, f32) {
+    ((nx - 0.5) * ASPECT, ny - 0.5)
+}
+
+/// Position of a pixel along the `angle` direction, 0 at one edge of the
+/// canvas and 1 at the other.
+fn along(nx: f32, ny: f32, angle_deg: f32) -> f32 {
+    let (s, c) = angle_deg.to_radians().sin_cos();
+    let (dx, dy) = centered(nx, ny);
+    // Half-extent of the canvas rectangle projected onto the direction.
+    let half = (c.abs() * ASPECT + s.abs()) * 0.5;
+    ((dx * c + dy * s) / half.max(1e-6) + 1.0) * 0.5
+}
+
+fn lerp_rgb(a: [u8; 3], b: [u8; 3], k: f32) -> [u8; 3] {
+    let k = k.clamp(0.0, 1.0);
+    let ch = |i: usize| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * k).round() as u8;
+    [ch(0), ch(1), ch(2)]
+}
+
+fn scale_rgb(c: [u8; 3], k: f32) -> [u8; 3] {
+    let k = k.clamp(0.0, 1.0);
+    [(c[0] as f32 * k) as u8, (c[1] as f32 * k) as u8, (c[2] as f32 * k) as u8]
+}
+
+fn add_rgb(a: [u8; 3], b: [u8; 3]) -> [u8; 3] {
+    [a[0].saturating_add(b[0]), a[1].saturating_add(b[1]), a[2].saturating_add(b[2])]
+}
+
+/// The first `n` palette colors as a seamless loop: `x` in [0,1) walks through
+/// all of them and back to the first.
+fn palette_loop(p: &EffectParams, n: usize, x: f32) -> [u8; 3] {
+    let pos = x.rem_euclid(1.0) * n as f32;
+    let i = pos as usize % n;
+    lerp_rgb(p.color(i), p.color((i + 1) % n), pos.fract())
+}
+
+/// Repeatable pseudo-random value in [0,1) for a grid cell — effects stay pure
+/// functions of time, so preview and hardware draw the same "random" frame.
+fn hash(x: i32, y: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA77);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0x00FF_FFFF) as f32 / 16_777_216.0
+}
+
+/// Smooth 2D value noise in [0,1].
+fn noise(x: f32, y: f32) -> f32 {
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let (sx, sy) = (fx * fx * (3.0 - 2.0 * fx), fy * fy * (3.0 - 2.0 * fy));
+    let (xi, yi) = (x0 as i32, y0 as i32);
+    let top = hash(xi, yi) + (hash(xi + 1, yi) - hash(xi, yi)) * sx;
+    let bot = hash(xi, yi + 1) + (hash(xi + 1, yi + 1) - hash(xi, yi + 1)) * sx;
+    top + (bot - top) * sy
+}
+
+/// Two octaves of [`noise`], still in [0,1].
+fn fbm(x: f32, y: f32) -> f32 {
+    (noise(x, y) * 2.0 + noise(x * 2.1 + 17.0, y * 2.1 - 9.0)) / 3.0
+}
+
+// ── everyday ─────────────────────────────────────────────────────────
+
+/// The palette laid out along `angle`, drifting slowly.
+fn gradient(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let shift = t * p.speed * 0.05;
+    fill(frame, |nx, ny| palette_loop(p, 3, along(nx, ny, p.angle) * 0.67 * p.scale - shift))
+}
+
+/// The palette in rings from the center, flowing outward.
+fn radial_gradient(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let shift = t * p.speed * 0.08;
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        palette_loop(p, 3, (dx * dx + dy * dy).sqrt() * p.scale - shift)
+    })
+}
+
+/// One color fading in and out; never fully dark, so devices don't look off.
+fn breathing(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let k = 0.06 + 0.94 * (0.5 - 0.5 * (t * p.speed * 1.6).cos()).powf(1.6);
+    let c = scale_rgb(p.color(0), k);
+    fill(frame, |_, _| c)
+}
+
+fn rainbow_radial(frame: &mut Frame, t: f32, p: &EffectParams) {
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        hsv_to_rgb((dx * dx + dy * dy).sqrt() * 360.0 * p.scale - t * p.speed * 90.0, 1.0, 1.0)
+    })
+}
+
+fn rainbow_spiral(frame: &mut Frame, t: f32, p: &EffectParams) {
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        let turn = dy.atan2(dx) / std::f32::consts::TAU;
+        let d = (dx * dx + dy * dy).sqrt();
+        hsv_to_rgb((turn + d * p.scale) * 360.0 - t * p.speed * 90.0, 1.0, 1.0)
+    })
+}
+
+/// Each palette color sweeps across in turn, replacing the one before it.
+fn color_wipe(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let phase = t * p.speed * 0.35;
+    let (step, edge) = (phase.floor() as usize, phase.fract());
+    fill(frame, |nx, ny| {
+        let d = along(nx, ny, p.angle);
+        // A soft edge a few LEDs wide reads better than a hard line on strips.
+        let k = ((edge * 1.1 - d) / 0.1).clamp(0.0, 1.0);
+        lerp_rgb(p.color(step % 3), p.color((step + 1) % 3), k)
+    })
+}
+
+// ── ambient ──────────────────────────────────────────────────────────
+
+/// Slow blobs of the palette colors drifting through each other.
+fn lava(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let ts = t * p.speed * 0.35;
+    let k = 3.0 * p.scale;
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        // Interfering sines rather than noise: blobs stay round at any scale.
+        let v = (dx * k + ts).sin()
+            + (dy * k * 1.3 - ts * 0.7).sin()
+            + ((dx + dy) * k * 0.8 + ts * 0.5).sin()
+            + ((dx * dx + dy * dy).sqrt() * k * 1.5 - ts).sin();
+        palette_loop(p, 3, (v + 4.0) / 8.0 * 1.5)
+    })
+}
+
+/// Flames rising from the bottom edge.
+fn fire(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let ts = t * p.speed * 2.2;
+    let k = 5.0 * p.scale;
+    fill(frame, |nx, ny| {
+        let turbulence = fbm(nx * k * ASPECT, ny * k + ts);
+        // Hot at the bottom, cooling with height; noise tears the flames.
+        let heat = ((ny - 0.35) * 1.3 + (turbulence - 0.5) * 0.9).clamp(0.0, 1.0);
+        match heat {
+            h if h < 0.33 => lerp_rgb([0, 0, 0], [200, 20, 0], h / 0.33),
+            h if h < 0.7 => lerp_rgb([200, 20, 0], [255, 150, 0], (h - 0.33) / 0.37),
+            h => lerp_rgb([255, 150, 0], [255, 240, 160], (h - 0.7) / 0.3),
+        }
+    })
+}
+
+/// Two colors in rolling horizontal swells.
+fn waves(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let ts = t * p.speed;
+    fill(frame, |nx, ny| {
+        let swell = (nx * 5.0 * p.scale + ts).sin() * 0.12 + (nx * 2.3 * p.scale - ts * 0.6).sin() * 0.08;
+        let k = 0.5 + 0.5 * ((ny + swell) * 3.0 * p.scale * std::f32::consts::TAU - ts * 1.5).sin();
+        lerp_rgb(p.color(0), p.color(1), k)
+    })
+}
+
+/// Stars that fade in and out on a dark field.
+fn twinkle(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let ts = t * p.speed;
+    let cells = 22.0 * p.scale;
+    fill(frame, |nx, ny| {
+        let (cx, cy) = ((nx * cells * ASPECT).floor() as i32, (ny * cells).floor() as i32);
+        // Only some cells hold a star; each has its own rhythm.
+        if hash(cx, cy) > 0.45 {
+            return [0, 0, 0];
+        }
+        let rate = 0.6 + hash(cy, cx) * 1.8;
+        let glow = (0.5 + 0.5 * (ts * rate + hash(cx + 7, cy - 3) * 40.0).sin()).powi(6);
+        scale_rgb(lerp_rgb(p.color(0), WHITE, glow * 0.5), glow)
+    })
+}
+
+/// Falling streaks. `glyphs` chops them into flickering cells (Matrix).
+fn rain(frame: &mut Frame, t: f32, p: &EffectParams, glyphs: bool) {
+    let ts = t * p.speed;
+    let columns = (if glyphs { 44.0 } else { 60.0 }) * p.scale;
+    fill(frame, |nx, ny| {
+        let col = (nx * columns).floor() as i32;
+        let fall = 0.25 + hash(col, 1) * 0.6;
+        // Head position wraps past the bottom so a streak leaves fully.
+        let head = (ts * fall + hash(col, 2)).fract() * 1.6 - 0.3;
+        let behind = head - ny;
+        if !(0.0..0.5).contains(&behind) {
+            return [0, 0, 0];
+        }
+        let mut glow = (-behind / 0.14).exp();
+        if glyphs {
+            let row = (ny * 26.0).floor() as i32;
+            glow *= 0.45 + 0.55 * hash(col * 31 + row, (ts * 9.0) as i32);
+        }
+        // The leading edge burns toward white.
+        scale_rgb(lerp_rgb(p.color(0), WHITE, (1.0 - behind / 0.03).clamp(0.0, 1.0) * 0.7), glow)
+    })
+}
+
+// ── motion ───────────────────────────────────────────────────────────
+
+/// Thin rings bursting from the center, alternating two colors.
+fn neon_pulse(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let phase = t * p.speed * 0.6;
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        let d = (dx * dx + dy * dy).sqrt() * p.scale;
+        // Ring number `n` is at radius `phase - n`; light the nearest two.
+        let mut out = [0, 0, 0];
+        for n in [(phase - d).floor(), (phase - d).floor() + 1.0] {
+            let gap = (phase - n - d) * 9.0;
+            let color = p.color((n as i64).rem_euclid(2) as usize);
+            out = add_rgb(out, scale_rgb(color, (-gap * gap).exp()));
+        }
+        out
+    })
+}
+
+/// A bar of light sweeping back and forth along `angle` (KITT).
+fn scanner(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let phase = (t * p.speed * 0.5).rem_euclid(2.0);
+    let head = if phase < 1.0 { phase } else { 2.0 - phase };
+    let width = 0.09 / p.scale.max(0.2);
+    fill(frame, |nx, ny| {
+        let gap = (along(nx, ny, p.angle) - head) / width;
+        let glow = (-gap * gap).exp();
+        scale_rgb(lerp_rgb(p.color(0), WHITE, glow * glow * 0.5), glow)
+    })
+}
+
+/// A rotating beam with a fading wake.
+fn radar_sweep(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let beam = t * p.speed * 0.35;
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        let turn = dy.atan2(dx) / std::f32::consts::TAU;
+        let behind = (beam - turn).rem_euclid(1.0);
+        scale_rgb(p.color(0), (-behind * 5.0 / p.scale.max(0.2)).exp())
+    })
+}
+
+/// Three glowing balls bouncing around the canvas, one per palette color.
+fn bouncing_balls(frame: &mut Frame, t: f32, p: &EffectParams) {
+    let ts = t * p.speed;
+    // Triangle wave: a straight-line bounce between 0 and 1.
+    let bounce = |x: f32| 1.0 - (x.rem_euclid(2.0) - 1.0).abs();
+    let balls: [(f32, f32); 3] = std::array::from_fn(|i| {
+        let k = i as f32;
+        (bounce(ts * (0.23 + 0.07 * k) + k * 0.61), bounce(ts * (0.31 - 0.05 * k) + k * 0.37))
+    });
+    let radius = 0.11 * p.scale;
+    fill(frame, |nx, ny| {
+        let mut out = [0, 0, 0];
+        for (i, (bx, by)) in balls.iter().enumerate() {
+            let (dx, dy) = ((nx - bx) * ASPECT, ny - by);
+            let gap = (dx * dx + dy * dy).sqrt() / radius;
+            out = add_rgb(out, scale_rgb(p.color(i), (-gap * gap).exp()));
+        }
+        out
+    })
 }
 
 /// h ∈ [0,360), s/v ∈ [0,1] → RGB.
@@ -154,16 +553,11 @@ fn norm_xy(frame: &Frame, x: usize, y: usize) -> (f32, f32) {
     )
 }
 
-/// Diagonal rainbow sweeping across the canvas.
+/// Rainbow sweeping across the canvas along `angle`.
 fn rainbow_wave(frame: &mut Frame, t: f32, p: &EffectParams) {
-    let (w, h) = (frame.width, frame.height);
-    for y in 0..h {
-        for x in 0..w {
-            let (nx, ny) = norm_xy(frame, x, y);
-            let hue = (nx + ny * 0.35) * 360.0 * p.scale - t * p.speed * 90.0;
-            frame.set(x, y, hsv_to_rgb(hue, 1.0, 1.0));
-        }
-    }
+    fill(frame, |nx, ny| {
+        hsv_to_rgb(along(nx, ny, p.angle) * 360.0 * p.scale - t * p.speed * 90.0, 1.0, 1.0)
+    })
 }
 
 /// Classic interference plasma.
@@ -344,8 +738,89 @@ mod tests {
             let mut b = Frame::new(32, 18);
             render(kind, &mut a, 0.0, &params);
             render(kind, &mut b, 1.0, &params);
+            if kind == EffectKind::Solid {
+                assert_eq!(a.px, b.px, "Solid must not animate");
+                continue;
+            }
             assert_ne!(a.px, b.px, "{kind:?} static over time");
         }
+    }
+
+    #[test]
+    fn along_spans_the_canvas_in_any_direction() {
+        for angle in [0.0, 37.0, 90.0, 180.0, 300.0] {
+            let d: Vec<f32> = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+                .iter()
+                .map(|&(x, y)| along(x, y, angle))
+                .collect();
+            let (lo, hi) = (d.iter().cloned().fold(1.0, f32::min), d.iter().cloned().fold(0.0, f32::max));
+            assert!(lo.abs() < 1e-4 && (hi - 1.0).abs() < 1e-4, "{angle}°: {lo}..{hi}");
+        }
+        // 0° runs left to right, 90° top to bottom.
+        assert!(along(0.9, 0.5, 0.0) > along(0.1, 0.5, 0.0));
+        assert!(along(0.5, 0.9, 90.0) > along(0.5, 0.1, 90.0));
+    }
+
+    #[test]
+    fn every_effect_lights_something_and_has_unique_names() {
+        let params = EffectParams::default();
+        let mut slugs = std::collections::BTreeSet::new();
+        for kind in EffectKind::ALL {
+            assert!(slugs.insert(kind.slug()), "duplicate slug {}", kind.slug());
+            // Over a few seconds no effect may be black everywhere.
+            let lit = (0..40).any(|i| {
+                let mut f = Frame::new(64, 36);
+                render(kind, &mut f, i as f32 * 0.25, &params);
+                f.px.iter().any(|p| p.iter().any(|&c| c > 60))
+            });
+            assert!(lit, "{kind:?} never lights up");
+        }
+    }
+
+    /// The UI thread renders the 320×180 preview 30 times a second.
+    #[test]
+    fn effects_are_fast_enough_for_the_preview() {
+        if cfg!(debug_assertions) {
+            return; // only meaningful optimized: `cargo test --release`
+        }
+        let params = EffectParams::default();
+        for kind in EffectKind::ALL {
+            let mut f = Frame::new(320, 180);
+            let start = std::time::Instant::now();
+            for i in 0..10 {
+                render(kind, &mut f, i as f32, &params);
+            }
+            let per_frame = start.elapsed() / 10;
+            eprintln!("{kind:?}: {per_frame:?}");
+            assert!(per_frame.as_millis() < 8, "{kind:?} takes {per_frame:?} per preview frame");
+        }
+    }
+
+    /// `cargo test -p cntrl-core contact_sheet -- --ignored` writes every effect
+    /// at t=3s to /tmp/cntrl-effects.ppm, for eyeballing a new effect.
+    #[test]
+    #[ignore]
+    fn contact_sheet() {
+        let (w, h, cols) = (160usize, 90usize, 6usize);
+        let rows = EffectKind::ALL.len().div_ceil(cols);
+        let mut sheet = vec![[20u8; 3]; (w + 4) * cols * (h + 4) * rows];
+        for (i, kind) in EffectKind::ALL.into_iter().enumerate() {
+            let mut f = Frame::new(w, h);
+            let params = EffectParams {
+                palette: (0..6).map(|c| kind.default_color(c)).collect(),
+                ..EffectParams::default()
+            };
+            render(kind, &mut f, 3.0, &params);
+            let (ox, oy) = ((i % cols) * (w + 4), (i / cols) * (h + 4));
+            for y in 0..h {
+                for x in 0..w {
+                    sheet[(oy + y) * (w + 4) * cols + ox + x] = f.get(x, y);
+                }
+            }
+        }
+        let mut out = format!("P6 {} {} 255\n", (w + 4) * cols, (h + 4) * rows).into_bytes();
+        out.extend(sheet.iter().flatten());
+        std::fs::write("/tmp/cntrl-effects.ppm", out).unwrap();
     }
 
     #[test]

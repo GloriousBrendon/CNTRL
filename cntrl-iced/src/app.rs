@@ -714,6 +714,7 @@ pub(crate) enum Message {
     CanvasEffect(EffectKind),
     CanvasSpeed(f32),
     CanvasScale(f32),
+    CanvasAngle(f32),
     CanvasBrightness(f32),
     CanvasFps(f32),
     CanvasSelect(Option<String>),
@@ -1031,6 +1032,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::CanvasScale(v) => {
             app.canvas_layout.settings.scale = v;
+            app.sync_stream();
+            Task::none()
+        }
+        Message::CanvasAngle(v) => {
+            app.canvas_layout.settings.angle = v;
             app.sync_stream();
             Task::none()
         }
@@ -1883,17 +1889,20 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     .style(card(colors));
 
     // ── effect picker ──
-    let mut effect_row = row![].spacing(8);
-    for kind in EffectKind::all() {
-        effect_row = effect_row.push(
-            button(text(kind.label()).size(13))
-                .on_press(Message::CanvasEffect(kind))
-                .padding([8, 12])
-                .style(segment_style(colors, s.effect == kind)),
-        );
+    let mut effect_row = column![].spacing(6);
+    for kinds in EffectKind::ALL.chunks(8) {
+        let mut r = row![].spacing(6);
+        for &kind in kinds {
+            r = r.push(
+                button(text(kind.label()).size(12))
+                    .on_press(Message::CanvasEffect(kind))
+                    .padding([6, 10])
+                    .style(segment_style(colors, s.effect == kind)),
+            );
+        }
+        effect_row = effect_row.push(r);
     }
 
-    // ── sliders ──
     // ── sliders: only the ones the active effect declares, then the
     // canvas-wide ones ──
     let mut sliders = row![].spacing(18);
@@ -1916,6 +1925,17 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             s.scale,
             colors,
             Message::CanvasScale,
+            Some(Message::CanvasDragEnd),
+        ));
+    }
+    if controls_for.angle {
+        sliders = sliders.push(labeled_slider_released(
+            "Direction",
+            format!("{:.0}°", s.angle),
+            0.0..=360.0,
+            s.angle,
+            colors,
+            Message::CanvasAngle,
             Some(Message::CanvasDragEnd),
         ));
     }

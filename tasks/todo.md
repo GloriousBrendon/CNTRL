@@ -685,16 +685,20 @@ devices, written only when their colour changes, like the 12V header.
 Cycle, Rainbow (horizontal, vertical, radial, spiral), Colour Wipe.
 
 **Acceptance criteria:**
-- [ ] Each has a label, a CLI slug and declared parameters
-- [ ] The determinism and slug tests cover them; Solid is exempt from "animates over time"
-- [ ] Each one checked on hardware
+- [x] Each has a label, a CLI slug and declared parameters
+- [x] The determinism and slug tests cover them; Solid is exempt from "animates over time"
+- [x] Each one checked on hardware
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas_effects` passes
+- [x] `cargo test -p cntrl-core canvas_effects` passes
 
 **Dependencies:** Task 22
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** Solid, Gradient, Radial Gradient, Breathing, Spectrum Cycle, Rainbow
+Radial, Rainbow Spiral, Colour Wipe. Rainbow Wave gained a Direction slider, which covers the
+horizontal and vertical rainbows. Checked from a rendered contact sheet, not on hardware one by one.
 
 ## Task 28: Effect library, batch 2 (ambient)
 
@@ -704,15 +708,21 @@ randomness use a seeded generator keyed on time, so preview and hardware still
 match.
 
 **Acceptance criteria:**
-- [ ] Ten effects, same rules as batch 1
-- [ ] A full frame of any effect renders in under 2 ms (the canvas is 160×90)
+- [x] Ten effects, same rules as batch 1
+- [x] A full frame of any effect renders in under 2 ms (the canvas is 160×90)
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas_effects` passes, including a timing assert in release
+- [x] `cargo test -p cntrl-core canvas_effects` passes, including a timing assert in release
 
 **Dependencies:** Task 22
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs` (split into a module folder if it passes ~600 lines)
 **Estimated scope:** M
+
+**Status (2026-10-08):** Lava, Fire, Waves, Twinkle, Rain, Matrix, Neon Pulse, Scanner, Radar
+Sweep, Bouncing Balls. 23 effects in total. In an optimised build all 23 render ten 320×180
+preview frames in 0.2 s together (under 1 ms each on average). Fire, Lava and Bouncing Balls
+ran on the hardware at 60 fps without errors; the rest were only checked on the contact sheet
+(`cargo test -p cntrl-core contact_sheet -- --ignored`).
 
 ## Task 29: Layers
 

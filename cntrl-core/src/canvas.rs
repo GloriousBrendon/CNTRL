@@ -476,6 +476,8 @@ fn default_100() -> f32 {
 pub struct EffectValues {
     pub speed: f32,
     pub scale: f32,
+    #[serde(default)]
+    pub angle: f32,
     pub palette: Vec<[u8; 3]>,
 }
 
@@ -488,6 +490,8 @@ pub struct EffectSettings {
     pub effect: EffectKind,
     pub speed: f32,
     pub scale: f32,
+    /// Direction in degrees, for effects that travel.
+    pub angle: f32,
     /// 0–100.
     pub brightness: f32,
     pub palette: Vec<[u8; 3]>,
@@ -506,6 +510,7 @@ impl Default for EffectSettings {
             effect: EffectKind::RainbowWave,
             speed: 1.0,
             scale: 1.0,
+            angle: 0.0,
             brightness: 100.0,
             palette: Vec::new(),
             color: None,
@@ -526,15 +531,18 @@ impl EffectSettings {
         let stashed = EffectValues {
             speed: self.speed,
             scale: self.scale,
+            angle: self.angle,
             palette: std::mem::take(&mut self.palette),
         };
         self.saved.insert(self.effect, stashed);
         let v = self.saved.remove(&effect).unwrap_or(EffectValues {
             speed: 1.0,
             scale: 1.0,
+            angle: 0.0,
             palette: Vec::new(),
         });
-        (self.effect, self.speed, self.scale, self.palette) = (effect, v.speed, v.scale, v.palette);
+        self.effect = effect;
+        (self.speed, self.scale, self.angle, self.palette) = (v.speed, v.scale, v.angle, v.palette);
         self.normalize();
     }
 
@@ -548,7 +556,7 @@ impl EffectSettings {
         }
         let want = self.effect.controls().colors;
         for i in self.palette.len()..want {
-            self.palette.push(crate::canvas_effects::DEFAULT_PALETTE[i % 6]);
+            self.palette.push(self.effect.default_color(i));
         }
         // Extra colors are kept (an effect with fewer simply ignores them).
     }
@@ -564,6 +572,7 @@ impl EffectSettings {
         crate::canvas_effects::EffectParams {
             speed: self.speed,
             scale: self.scale,
+            angle: self.angle,
             palette,
         }
     }

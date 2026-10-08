@@ -167,8 +167,8 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 
 ### Phase 6: Dynamic canvas
 - [ ] Task 26: Onboard motherboard zones as canvas devices
-- [ ] Task 27: Effect library, batch 1 (everyday)
-- [ ] Task 28: Effect library, batch 2 (ambient)
+- [x] Task 27: Effect library, batch 1 (everyday)
+- [x] Task 28: Effect library, batch 2 (ambient)
 - [ ] Task 29: Layers
 - [ ] Task 30: Effect inputs (live data into effects)
 - [ ] Task 31: Audio capture to frequency bands

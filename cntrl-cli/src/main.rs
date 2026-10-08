@@ -50,7 +50,7 @@ enum Commands {
     /// (arrange devices in the panel's Canvas tab). With the daemon running the
     /// stream lives there and keeps going after this command returns.
     Canvas {
-        /// Effect: wave | plasma | ripple | comet | aurora (default: saved).
+        /// Effect slug, see `--list` (default: saved).
         #[arg(long)]
         effect: Option<String>,
         /// Frames per second (default: saved layout setting).
@@ -260,7 +260,7 @@ fn run_canvas(
     if list {
         println!("canvas effects:");
         for kind in EffectKind::all() {
-            println!("  {:<8} {}", kind.slug(), kind.label());
+            println!("  {:<15} {}", kind.slug(), kind.label());
         }
         return Ok(());
     }
