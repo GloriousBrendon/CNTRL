@@ -80,6 +80,34 @@ pub fn remember(backends: &[String], hex: &str, effect: i32, brightness: i32, sp
     }
 }
 
+/// Record the lighting a document actually applied, for the backends named by
+/// `options` (PC fan-out resolved via `CNTRL_PC_RGB_BACKENDS`, as at apply time).
+///
+/// Callers must pass the document they *applied*, not the one they loaded from
+/// disk — e.g. theme sync promotes an Off slot to Static before pushing, and
+/// saving the pre-promotion effect is what made the keyboard come back dark
+/// after every reboot.
+pub fn remember_applied(doc: &crate::profile::ProfileDocument, options: ApplyOptions) {
+    let mut backends: Vec<String> = Vec::new();
+    if options.keyboard {
+        backends.push("keyboard".into());
+    }
+    if options.pc_rgb {
+        backends.extend(crate::rgb_backends::BackendRegistry::from_env().enabled_ids);
+    }
+    if backends.is_empty() {
+        return;
+    }
+    let cfg = &doc.data.light.config;
+    remember(
+        &backends,
+        &cfg.hex_color,
+        cfg.effect,
+        cfg.brightness,
+        cfg.speed,
+    );
+}
+
 pub(crate) fn doc_for(state: &LightState) -> crate::profile::ProfileDocument {
     let mut doc = crate::profile::default_profile_document();
     doc.data.light.config.hex_color = state.hex.clone();

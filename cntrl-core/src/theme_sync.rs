@@ -35,6 +35,9 @@ pub fn apply_theme(slot: u8, options: ApplyOptions) -> Result<(u8, u8, u8), Stri
         doc.data.light.config.effect = MODE_STATIC;
     }
     apply_local_with_options(&doc, slot, options)?;
+    // Persist the *promoted* doc, so a slot that was Off doesn't get re-saved as
+    // Off and re-applied dark by `cntrl restore` on the next boot.
+    crate::device_state::remember_applied(&doc, options);
     Ok((r, g, b))
 }
 

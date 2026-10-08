@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/install.sh              # build + install binary + udev + desktop
-#   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also enable boot RGB probe service
+#   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also enable boot RGB probe + resume hook
 #   PREFIX=/usr ./scripts/install.sh  # install to /usr/bin instead
 #
 set -euo pipefail
@@ -39,6 +39,14 @@ if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
     sudo systemctl daemon-reload
     sudo systemctl enable --now cntrl-rgb-probe.service
     echo "    systemd service enabled."
+
+    echo "==> Installing resume hook (re-applies RGB after suspend/hibernate)..."
+    sudo install -Dm644 \
+        "$ROOT/packaging/systemd/cntrl-resume@.service" \
+        /etc/systemd/system/cntrl-resume@.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable "cntrl-resume@${SUDO_USER:-$USER}.service"
+    echo "    resume hook enabled for ${SUDO_USER:-$USER}."
 fi
 
 echo ""
@@ -48,6 +56,6 @@ echo "  Start the popup:     cntrl popup"
 echo "  Re-probe RGB devices: cntrl probe-rgb --force"
 if [[ "$INSTALL_SYSTEMD" != "1" ]]; then
     echo ""
-    echo "  To enable the boot RGB probe service:"
+    echo "  To enable the boot RGB probe + suspend/hibernate resume hook:"
     echo "    INSTALL_SYSTEMD=1 $0"
 fi

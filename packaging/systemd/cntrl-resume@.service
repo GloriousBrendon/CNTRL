@@ -1,0 +1,30 @@
+# CNTRL — re-apply saved RGB after resume from suspend/hibernate (SYSTEM service).
+#
+# `cntrl-restore.service` is a user unit wanted by default.target: it only runs
+# once, at login. Suspend and hibernate cut power to the devices without ending
+# the session, so nothing re-applies lighting on resume — the keyboard comes back
+# dark. Sleep targets live in the system manager (there is no user-level
+# sleep.target), so this hook has to be a system unit instantiated for your user.
+#
+# Install (as root), replacing `USER` with your username:
+#   sudo install -Dm644 packaging/systemd/cntrl-resume@.service \
+#       /etc/systemd/system/cntrl-resume@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable cntrl-resume@USER.service
+#
+# User=%i runs it as that user with their supplementary groups, so the `users`
+# group access granted by the udev rules applies (see packaging/udev/).
+
+[Unit]
+Description=CNTRL re-apply saved RGB lighting after resume (%i)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+User=%i
+# USB devices re-enumerate on resume; wait for the hidraw/i2c nodes to reappear.
+ExecStartPre=/usr/bin/sleep 3
+ExecStart=/usr/local/bin/cntrl restore
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
