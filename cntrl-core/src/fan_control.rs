@@ -11,6 +11,7 @@
 //! auto-detected and, even when loaded, the board's embedded controller may
 //! re-assert its own fan curve and ignore PWM writes — see `it87_spike`.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -28,8 +29,6 @@ pub enum FanChannelStatus {
     Blocked,
     /// `pwmN` exists but has no `pwmN_enable` sibling — can't force manual mode safely.
     ReadOnly,
-    /// Referenced by config but no longer present on this machine.
-    Absent,
 }
 
 impl FanChannelStatus {
@@ -38,7 +37,6 @@ impl FanChannelStatus {
             FanChannelStatus::Controllable => "Controllable",
             FanChannelStatus::Blocked => "Permission blocked",
             FanChannelStatus::ReadOnly => "Read-only (no enable)",
-            FanChannelStatus::Absent => "Not detected",
         }
     }
 }
@@ -68,7 +66,6 @@ pub struct FanChannel {
     /// Stable id, e.g. `amdgpu/pwm1`.
     pub id: String,
     pub chip: String,
-    pub hwmon_path: PathBuf,
     pub pwm_file: PathBuf,
     pub enable_file: Option<PathBuf>,
     /// `fanN_input` (RPM tach) if a matching one exists.
@@ -98,14 +95,6 @@ impl FanChannel {
         self.enable_file
             .as_ref()
             .and_then(|p| read_sysfs_u32(p).ok())
-    }
-
-    /// Set `pwmN_enable` to manual (software control). No-op if there is no enable file.
-    pub fn set_manual(&self) -> Result<(), String> {
-        match &self.enable_file {
-            Some(p) => write_sysfs(p, &PWM_ENABLE_MANUAL.to_string()),
-            None => Err(format!("{}: no pwm enable file", self.id)),
-        }
     }
 
     /// Hand the channel back to firmware (automatic) control.
@@ -188,6 +177,15 @@ pub struct FanDiscovery {
     pub channels: Vec<FanChannel>,
 }
 
+/// One snapshot of every live value, keyed by sensor/channel id — so a UI can
+/// read sysfs once per poll instead of on every redraw.
+#[derive(Debug, Clone, Default)]
+pub struct FanReadings {
+    pub temps_c: HashMap<String, f32>,
+    pub rpm: HashMap<String, u32>,
+    pub pwm_raw: HashMap<String, u32>,
+}
+
 impl FanDiscovery {
     pub fn channel(&self, id: &str) -> Option<&FanChannel> {
         self.channels.iter().find(|c| c.id == id)
@@ -195,6 +193,24 @@ impl FanDiscovery {
 
     pub fn sensor(&self, id: &str) -> Option<&TempSensor> {
         self.sensors.iter().find(|s| s.id == id)
+    }
+
+    pub fn read_all(&self) -> FanReadings {
+        let mut r = FanReadings::default();
+        for s in &self.sensors {
+            if let Ok(c) = s.read_celsius() {
+                r.temps_c.insert(s.id.clone(), c);
+            }
+        }
+        for c in &self.channels {
+            if let Some(rpm) = c.read_rpm() {
+                r.rpm.insert(c.id.clone(), rpm);
+            }
+            if let Ok(pwm) = c.read_pwm() {
+                r.pwm_raw.insert(c.id.clone(), pwm);
+            }
+        }
+        r
     }
 }
 
@@ -219,12 +235,14 @@ pub fn discover_in(root: &Path) -> FanDiscovery {
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
         .collect();
-    dirs.sort();
+    // Numeric order (hwmon2 before hwmon10), so `chip#2` follows kernel order.
+    dirs.sort_by_key(|d| hwmon_index(d));
 
     // Multiple hwmon dirs can share a `name` (e.g. two `nvme`, two `amdgpu`).
-    // Disambiguate ids deterministically so curve refs stay unique/stable: the
-    // first occurrence keeps the bare chip name, later ones get `chip#2`, etc.
-    let mut chip_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    // The first occurrence keeps the bare chip name, later ones get `chip#2`,
+    // etc. Kernel hwmon numbering can change between boots, so ids of duplicate
+    // chips are stable within a boot only.
+    let mut chip_counts: HashMap<String, u32> = HashMap::new();
 
     for dir in dirs {
         let chip = read_sysfs_string(&dir.join("name")).unwrap_or_else(|_| "unknown".to_string());
@@ -262,7 +280,6 @@ pub fn discover_in(root: &Path) -> FanDiscovery {
             channels.push(FanChannel {
                 id: format!("{chip_key}/pwm{n}"),
                 chip: chip.clone(),
-                hwmon_path: dir.clone(),
                 pwm_file,
                 enable_file,
                 tach_file,
@@ -274,6 +291,28 @@ pub fn discover_in(root: &Path) -> FanDiscovery {
     }
 
     FanDiscovery { sensors, channels }
+}
+
+fn hwmon_index(dir: &Path) -> u32 {
+    dir.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_prefix("hwmon"))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(u32::MAX)
+}
+
+/// The in-tree `it87` driver reads Gigabyte boards' fans but its PWM writes are
+/// ignored by the board's fan controller; the out-of-tree driver is needed.
+/// `Some(warning)` when the in-tree one is loaded (the kernel marks out-of-tree
+/// modules with an `O` taint flag).
+pub fn it87_in_tree_warning() -> Option<&'static str> {
+    let taint = fs::read_to_string("/sys/module/it87/taint").ok()?;
+    (!taint.contains('O')).then_some(
+        "the kernel's built-in it87 driver is loaded. On recent Gigabyte boards it \
+         reads fans but speed writes are silently ignored. Install the out-of-tree \
+         driver (AUR: it87-dkms-git) plus the headers for your running kernel, then \
+         `sudo modprobe -r it87 && sudo modprobe it87`.",
+    )
 }
 
 /// Decide a channel's controllability + a human-readable reason.
@@ -438,11 +477,11 @@ pub fn it87_spike(
 
     let orig_enable = channel.read_enable();
     let orig_pwm = channel.read_pwm()?;
-    let baseline_rpm = channel.read_rpm();
+    let baseline_rpm = steady_rpm(channel);
 
     // Ensure we always restore, even on an early error mid-window.
     let mut run = || -> Result<Vec<(u64, Option<u32>)>, String> {
-        channel.set_manual()?;
+        channel.set_manual_verified()?;
         channel.write_raw(value)?;
         let mut samples = Vec::new();
         for s in 1..=seconds {
@@ -482,6 +521,22 @@ pub fn it87_spike(
         commanded_raw: value,
         note,
     })
+}
+
+/// Baseline RPM once the fan has settled: a fan still ramping (e.g. just handed
+/// back to firmware by a previous spike) makes any later reading look like a
+/// response. Waits up to 12 s for two readings 2 s apart to agree within 3%.
+fn steady_rpm(channel: &FanChannel) -> Option<u32> {
+    let mut prev = channel.read_rpm()?;
+    for _ in 0..6 {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let now = channel.read_rpm()?;
+        if now.abs_diff(prev) * 100 <= prev.max(1) * 3 {
+            return Some(now);
+        }
+        prev = now;
+    }
+    Some(prev)
 }
 
 /// Decide PASS/FAIL/INCONCLUSIVE from the tach samples.

@@ -155,13 +155,13 @@ the engine forever. Hold an OS lock on the file; the kernel releases it when the
 process dies. Delete `pid_alive` and the `Drop` impl.
 
 **Acceptance criteria:**
-- [ ] Lock uses `File::try_lock` (or `flock` through the existing `nix` dependency)
-- [ ] A leftover lock file from a dead process does not block start
-- [ ] Two engines started together: exactly one runs
+- [x] Lock uses `File::try_lock` (or `flock` through the existing `nix` dependency)
+- [x] A leftover lock file from a dead process does not block start
+- [x] Two engines started together: exactly one runs
 
 **Verification:**
-- [ ] Test: take the lock twice in one process through two handles, second fails
-- [ ] Manual: `cntrl fans run` while the daemon runs prints "already running"
+- [x] Test: take the lock twice in one process through two handles, second fails
+- [x] Manual: `cntrl fans run` while the daemon runs prints "already running"
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-core/src/fan_engine.rs`
@@ -173,11 +173,11 @@ process dies. Delete `pid_alive` and the `Drop` impl.
 last value *written*, even if something else changed the fan since.
 
 **Acceptance criteria:**
-- [ ] Skip only when `read_pwm()` also equals the last written raw value
-- [ ] Test: change the fake `pwm1` between ticks at a steady temperature, next tick rewrites it
+- [x] Skip only when `read_pwm()` also equals the last written raw value
+- [x] Test: change the fake `pwm1` between ticks at a steady temperature, next tick rewrites it
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core fan_` passes
+- [x] `cargo test -p cntrl-core fan_` passes
 
 **Dependencies:** Task 1
 **Files likely touched:** `cntrl-core/src/fan_curves.rs`
@@ -190,12 +190,18 @@ the real restore message from Checkpoint A. Only if it reports an error on
 `amdgpu/pwm1`, skip the PWM write when the restored mode is not manual.
 
 **Acceptance criteria:**
-- [ ] The restore message on this machine is recorded in the task notes
-- [ ] If it showed an error: restore reports "restored 1" with no error
-- [ ] If it did not: close the task with no code change
+- [x] The restore message on this machine is recorded in the task notes
+- [x] If it showed an error: restore reports "restored 1" with no error
+- [x] If it did not: close the task with no code change
+
+**Result:** the error was real on it87 (`Device or resource busy`). Fixed in Phase 1;
+the spike now also waits for a settled baseline. Re-run on `pwm3`: 844 → 1630 RPM,
+PASS, no restore warning. A direction check was not added: in automatic mode the
+driver does not report the real duty, so "up or down" cannot be known in advance.
+The README says to test one high and one low value.
 
 **Verification:**
-- [ ] Manual: `cntrl fans restore` output after an engine run
+- [x] Manual: `cntrl fans restore` output after an engine run
 
 **Dependencies:** Checkpoint A
 **Files likely touched:** `cntrl-core/src/fan_control.rs`
@@ -258,9 +264,9 @@ say so in the README and Fans tab and close the task.
 
 **Acceptance criteria:**
 - [ ] After reboot, `cntrl fans list` shows the it87 channels with no manual step
-- [ ] The channels are writable without root (the udev rule already covers `it87`)
-- [ ] The install step is opt-in or clearly labelled experimental
-- [ ] `install.sh` also installs `packaging/udev/99-cntrl-hwmon.rules` (today it does not; the rule on this machine was put there by hand)
+- [x] The channels are writable without root (the udev rule already covers `it87`)
+- [x] The install step is opt-in or clearly labelled experimental
+- [x] `install.sh` also installs `packaging/udev/99-cntrl-hwmon.rules` (today it does not; the rule on this machine was put there by hand)
 
 **Verification:**
 - [ ] Manual: reboot, `cntrl fans list`, set a curve on one case fan in the Fans tab, RPM follows
@@ -268,6 +274,11 @@ say so in the README and Fans tab and close the task.
 **Dependencies:** Task 9
 **Files likely touched:** `scripts/install.sh`, `README.md`
 **Estimated scope:** S
+
+**Status (2026-10-08):** code and README done (`INSTALL_IT87=1 ./scripts/install.sh`,
+driver warning in `cntrl fans list`). Open: you run the install with
+`INSTALL_IT87=1` and reboot once to confirm. The warning for the built-in driver
+was only checked in the "no warning" direction (the out-of-tree driver is loaded).
 
 ## Task 11: Fans tab reads once per poll; numeric hwmon sort; delete dead code
 
@@ -278,13 +289,13 @@ in `FanPoll` and keep the values in `App`. Sort `hwmonN` by number so
 the plain `set_manual`.
 
 **Acceptance criteria:**
-- [ ] `fans_view` does no file reads
-- [ ] Duplicate chips are numbered in numeric hwmon order
-- [ ] The six unused items are gone and nothing else changed behaviour
+- [x] `fans_view` does no file reads
+- [x] Duplicate chips are numbered in numeric hwmon order
+- [x] The six unused items are gone and nothing else changed behaviour
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core` passes; build has no new warnings
-- [ ] Manual: dragging a curve point in the Fans tab is smooth; readings update each second
+- [x] `cargo test -p cntrl-core` passes; build has no new warnings
+- [x] Manual: dragging a curve point in the Fans tab is smooth; readings update each second
 
 **Dependencies:** Task 2 (touches the same file)
 **Files likely touched:** `cntrl-iced/src/app.rs`, `cntrl-core/src/fan_control.rs`, `cntrl-core/src/fan_curves.rs`, `cntrl-core/src/fan_engine.rs`

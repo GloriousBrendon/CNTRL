@@ -14,14 +14,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 use std::time::Duration;
 
-/// Set by the signal handler and by `request_stop`. The loop polls it.
+/// Set by the signal handler. The loop polls it.
 static STOP: AtomicBool = AtomicBool::new(false);
 static PANIC_HOOK: Once = Once::new();
 static SIGNALS: Once = Once::new();
-
-pub fn request_stop() {
-    STOP.store(true, Ordering::SeqCst);
-}
 
 pub fn should_stop() -> bool {
     STOP.load(Ordering::SeqCst)
@@ -67,17 +63,12 @@ pub fn install_panic_hook() {
     });
 }
 
-/// A pid lockfile preventing two engines (e.g. the daemon and a manual
+/// An OS lock preventing two engines (e.g. the daemon and a manual
 /// `cntrl fans run`) from fighting over the same `pwm*` files. Held for the
-/// lifetime of the returned guard; released (file removed) on drop.
+/// lifetime of the returned guard. The kernel drops it when the process dies,
+/// however it dies, so a crash or power cut can't leave it stuck.
 pub struct EngineLock {
-    path: std::path::PathBuf,
-}
-
-impl Drop for EngineLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
+    _file: std::fs::File,
 }
 
 fn lock_path() -> Result<std::path::PathBuf, String> {
@@ -86,32 +77,37 @@ fn lock_path() -> Result<std::path::PathBuf, String> {
         .ok_or_else(|| "Could not resolve config directory".to_string())
 }
 
-/// Acquire the engine lock, or return an error naming the holding pid. A lock
-/// whose pid is no longer alive is treated as stale and taken over.
+/// Acquire the engine lock, or return an error naming the holding pid.
 pub fn acquire_lock() -> Result<EngineLock, String> {
-    let path = lock_path()?;
+    acquire_lock_at(&lock_path()?)
+}
+
+fn acquire_lock_at(path: &std::path::Path) -> Result<EngineLock, String> {
+    use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    if let Ok(raw) = std::fs::read_to_string(&path) {
-        if let Ok(pid) = raw.trim().parse::<i32>() {
-            if pid_alive(pid) {
-                return Err(format!(
-                    "fan engine already running (pid {pid}); stop it first or run `cntrl fans restore`"
-                ));
-            }
-        }
-        // Stale lock — fall through and overwrite.
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    if file.try_lock().is_err() {
+        // The pid in the file is informational only (written by the holder).
+        let pid = std::fs::read_to_string(path).unwrap_or_default();
+        return Err(format!(
+            "fan engine already running (pid {}); stop it first",
+            pid.trim()
+        ));
     }
-    std::fs::write(&path, std::process::id().to_string()).map_err(|e| e.to_string())?;
-    Ok(EngineLock { path })
+    let _ = file.set_len(0);
+    let _ = write!(file, "{}", std::process::id());
+    Ok(EngineLock { _file: file })
 }
 
-fn pid_alive(pid: i32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
-}
-
-/// Run the control loop until a stop is requested (signal or `request_stop`),
+/// Run the control loop until a stop is requested (SIGINT/SIGTERM),
 /// then restore all driven fans. `log` is called with each tick's summary.
 ///
 /// Config is reloaded every tick so GUI/CLI edits apply live, but the long-lived
@@ -160,4 +156,21 @@ pub fn run_loop(mut log: impl FnMut(&FanTickSummary)) {
 
     let msg = fan_curves::restore_all();
     eprintln!("cntrl fans: engine stopped — {msg}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_is_exclusive_and_ignores_leftover_files() {
+        let path = std::env::temp_dir().join(format!("cntrl-lock-test-{}", std::process::id()));
+        // A file left by a dead engine (power cut) must not block a new one.
+        std::fs::write(&path, "1").unwrap();
+        let held = acquire_lock_at(&path).expect("stale file must not block");
+        assert!(acquire_lock_at(&path).is_err(), "second engine must be refused");
+        drop(held);
+        assert!(acquire_lock_at(&path).is_ok(), "lock must be free after drop");
+        let _ = std::fs::remove_file(path);
+    }
 }

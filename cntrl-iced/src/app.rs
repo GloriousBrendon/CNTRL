@@ -458,6 +458,8 @@ struct App {
     // ── Fans tab ──
     /// Discovered temp sensors + fan channels (refreshed on tab entry + poll).
     fan_discovery: cntrl_core::fan_control::FanDiscovery,
+    /// Live RPM/duty/temperature, read once per poll (never while drawing).
+    fan_readings: cntrl_core::fan_control::FanReadings,
     /// Persisted fan curve config (mirrors `fan_curves.json`; GUI is the editor).
     fan_curve_cfg: cntrl_core::fan_curves::FanCurveConfig,
     /// Selected fan channel id (drives the right-hand editor pane).
@@ -497,6 +499,7 @@ fn derive_profile_state(doc: &ProfileDocument) -> (i32, u8, u8, (u8, u8, u8), (f
 impl App {
     fn from_profile(doc: ProfileDocument, active_slot: u8) -> Self {
         let (effect_id, brightness, speed, current_color, hsl) = derive_profile_state(&doc);
+        let fan_discovery = cntrl_core::fan_control::discover();
         let canvas_layout = core_canvas::load_layout();
         let canvas_preview = canvas_tab::render_preview(&canvas_layout, 0.0);
 
@@ -523,7 +526,8 @@ impl App {
             canvas_t0: std::time::Instant::now(),
             canvas_stream: None,
             canvas_status: String::new(),
-            fan_discovery: cntrl_core::fan_control::discover(),
+            fan_readings: fan_discovery.read_all(),
+            fan_discovery,
             fan_curve_cfg: cntrl_core::fan_curves::load(),
             fan_selected: None,
             fan_status: String::new(),
@@ -548,6 +552,12 @@ impl App {
             .assignments
             .iter()
             .find(|a| a.channel_id == channel_id)
+    }
+
+    /// Re-scan hwmon and snapshot its live values for the Fans tab.
+    fn refresh_fans(&mut self) {
+        self.fan_discovery = cntrl_core::fan_control::discover();
+        self.fan_readings = self.fan_discovery.read_all();
     }
 
     /// Push the current layout/settings into the running stream (if any) so
@@ -688,7 +698,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.devices = cntrl_core::devices::enumerate();
             }
             if t == ShellTab::Fans {
-                app.fan_discovery = cntrl_core::fan_control::discover();
+                app.refresh_fans();
                 app.fan_curve_cfg = cntrl_core::fan_curves::load();
             }
             Task::none()
@@ -1052,7 +1062,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::FanPoll => {
-            app.fan_discovery = cntrl_core::fan_control::discover();
+            app.refresh_fans();
             Task::none()
         }
         Message::FanToggleEnabled(on) => {
@@ -2097,14 +2107,18 @@ fn fans_view(app: &App) -> Element<'_, Message> {
     }
     for ch in &app.fan_discovery.channels {
         let selected = app.fan_selected.as_deref() == Some(ch.id.as_str());
-        let rpm = ch
-            .read_rpm()
+        let rpm = app
+            .fan_readings
+            .rpm
+            .get(&ch.id)
             .map(|r| format!("{r} RPM"))
             .unwrap_or_else(|| "no tach".to_string());
-        let duty = ch
-            .read_pwm()
-            .map(|raw| format!("{}%", cntrl_core::fan_control::raw_to_pct(raw)))
-            .unwrap_or_else(|_| "—".to_string());
+        let duty = app
+            .fan_readings
+            .pwm_raw
+            .get(&ch.id)
+            .map(|raw| format!("{}%", cntrl_core::fan_control::raw_to_pct(*raw)))
+            .unwrap_or_else(|| "—".to_string());
         let assigned = app.assignment_for(&ch.id).is_some();
         let mut title = row![text(ch.id.clone()).size(14)].spacing(8).align_y(Alignment::Center);
         if ch.experimental {
@@ -2215,10 +2229,7 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
         })
         .unwrap_or((&[], String::new()));
 
-    let current_temp = app
-        .fan_discovery
-        .sensor(&sensor_id)
-        .and_then(|s| s.read_celsius().ok());
+    let current_temp = app.fan_readings.temps_c.get(&sensor_id).copied();
 
     let sensor_row = row![
         text("Sensor").size(12).color(muted(colors)),
@@ -2338,7 +2349,6 @@ fn fan_status_pill(status: cntrl_core::fan_control::FanChannelStatus) -> Element
         FanChannelStatus::Controllable => Color::from_rgb8(0x4c, 0xc2, 0x6a),
         FanChannelStatus::Blocked => Color::from_rgb8(0xe0, 0x6c, 0x4c),
         FanChannelStatus::ReadOnly => Color::from_rgb8(0xe0, 0x9c, 0x4c),
-        FanChannelStatus::Absent => Color::from_rgb8(0x80, 0x80, 0x80),
     };
     let dot = container(Space::new().width(8).height(8)).style(move |_| container::Style {
         background: Some(color.into()),

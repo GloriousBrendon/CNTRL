@@ -486,7 +486,6 @@ fn run_fans_list() -> Result<(), String> {
             FanChannelStatus::Controllable => "●",
             FanChannelStatus::Blocked => "✗",
             FanChannelStatus::ReadOnly => "◐",
-            FanChannelStatus::Absent => "○",
         };
         if c.status == FanChannelStatus::Blocked {
             blocked = true;
@@ -505,6 +504,9 @@ fn run_fans_list() -> Result<(), String> {
         println!("      {}", c.detail);
     }
 
+    if let Some(warning) = fan_control::it87_in_tree_warning() {
+        println!("\nWARNING: {warning}");
+    }
     if blocked {
         println!(
             "\nA channel is permission-blocked. Install the hwmon udev rule:\n  \

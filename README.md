@@ -75,15 +75,28 @@ cntrl fans restore              # recover fans after a SIGKILL / crash
 
 ### Motherboard headers (experimental)
 
-Case-fan headers hang off the board's Super I/O chip (ITE `it87`), which Gigabyte boards often don't advertise, so the driver isn't auto-loaded. Load it, then **validate before trusting it** — on many Gigabyte boards the embedded controller re-asserts its own fan curve and silently ignores PWM writes:
+CPU and case fan headers hang off the board's Super I/O chip (ITE, `it87` driver). The driver is not loaded automatically, and **which `it87` you load matters**:
+
+- The kernel's built-in `it87` reads temperatures and RPM, but on recent Gigabyte boards (tested: B650 AORUS ELITE AX V2, IT8689E) the board's own fan controller ignores its speed writes. Fans can be switched to manual, but the speed never follows.
+- The out-of-tree driver ([frankcrawford/it87](https://github.com/frankcrawford/it87), AUR `it87-dkms-git`) works. DKMS only builds it for kernels whose **headers are installed**, so install the headers package that matches `uname -r` (for example `linux-cachyos-bore-headers`), or you will silently keep the built-in driver.
 
 ```bash
-sudo cntrl fans it87-load --force-id 0x8689     # chip id varies by board (IT8689E here)
-sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon
-cntrl fans it87-spike --channel it8689/pwm1 --value 200 --seconds 30
+paru -S it87-dkms-git                     # plus the headers for your running kernel
+INSTALL_IT87=1 ./scripts/install.sh       # load it87 at every boot + hwmon udev rule
+modinfo it87 | grep filename              # must contain updates/dkms
+cntrl fans list                           # warns if the built-in driver is loaded
 ```
 
-The spike drives one header to a fixed duty and watches its tach: **PASS** = the RPM moved and held, so control is real; **FAIL** = the RPM drifted back to baseline (the EC is overriding writes — control isn't usable on this board); **INCONCLUSIVE** = no tach wired. The channel is restored regardless. Motherboard channels always show an **Experimental** badge in the Fans tab.
+Channel ids contain the chip name the driver reports (`it8689/pwm3` built-in, `it8689_90060606/pwm3` out-of-tree), so curves saved under one driver do not apply under the other.
+
+**Validate before trusting it** on a new board:
+
+```bash
+cntrl fans it87-spike --channel it8689_90060606/pwm3 --value 255 --seconds 15
+cntrl fans it87-spike --channel it8689_90060606/pwm3 --value 80 --seconds 15
+```
+
+The spike waits for the fan to settle, drives it to a fixed speed and watches the RPM: **PASS** = the RPM moved and held; **FAIL** = it stayed put (writes are being ignored); **INCONCLUSIVE** = no tach wired. The channel is handed back to the firmware afterwards. Check both a high and a low value: a pass must go up for one and down for the other. Motherboard channels always show an **Experimental** badge in the Fans tab.
 
 ## Theme switcher sync
 

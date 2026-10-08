@@ -132,12 +132,12 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 ### Checkpoint A: fans are safe on the GPU fan
 
 ### Phase 2: Fans robust + motherboard fans
-- [ ] Task 6: OS file lock instead of pid file
-- [ ] Task 7: Write-skip checks the hardware value
-- [ ] Task 8: Restore writes PWM only in manual mode
-- [ ] Task 9: it87 validation spike on the real board (you run it, sudo)
+- [x] Task 6: OS file lock instead of pid file
+- [x] Task 7: Write-skip checks the hardware value
+- [x] Task 8: Restore writes PWM only in manual mode
+- [x] Task 9: it87 validation spike on the real board (you run it, sudo)
 - [ ] Task 10: Load it87 at boot (only if Task 9 passes)
-- [ ] Task 11: Fans tab reads once per poll; numeric hwmon sort; delete dead code
+- [x] Task 11: Fans tab reads once per poll; numeric hwmon sort; delete dead code
 
 ### Checkpoint B: all fans controlled, or the limit is documented
 

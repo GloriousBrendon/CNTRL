@@ -4,6 +4,7 @@
 # Usage:
 #   ./scripts/install.sh              # build + install binary + udev + desktop
 #   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also enable boot RGB probe + resume hook
+#   INSTALL_IT87=1 ./scripts/install.sh     # also load the it87 fan driver at boot (experimental)
 #   PREFIX=/usr ./scripts/install.sh  # install to /usr/bin instead
 #
 set -euo pipefail
@@ -12,6 +13,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${PREFIX:-/usr/local}"
 BINDIR="${PREFIX}/bin"
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-0}"
+INSTALL_IT87="${INSTALL_IT87:-0}"
 
 echo "==> Building release..."
 cargo build --release --manifest-path "$ROOT/Cargo.toml" -p cntrl-cli
@@ -23,6 +25,9 @@ echo "==> Installing udev rules..."
 sudo install -Dm644 \
     "$ROOT/packaging/udev/99-mchose-ace68.rules" \
     /etc/udev/rules.d/99-mchose-ace68.rules
+sudo install -Dm644 \
+    "$ROOT/packaging/udev/99-cntrl-hwmon.rules" \
+    /etc/udev/rules.d/99-cntrl-hwmon.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 
@@ -47,6 +52,17 @@ if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
     sudo systemctl daemon-reload
     sudo systemctl enable "cntrl-resume@${SUDO_USER:-$USER}.service"
     echo "    resume hook enabled for ${SUDO_USER:-$USER}."
+fi
+
+if [[ "$INSTALL_IT87" == "1" ]]; then
+    echo "==> Loading the it87 motherboard fan driver at boot (experimental)..."
+    echo it87 | sudo tee /etc/modules-load.d/cntrl-it87.conf >/dev/null
+    sudo modprobe it87 || echo "    modprobe it87 failed — see README 'Motherboard headers'."
+    sudo udevadm trigger --subsystem-match=hwmon
+    if ! grep -q O /sys/module/it87/taint 2>/dev/null; then
+        echo "    WARNING: this is the kernel's built-in it87. On recent Gigabyte boards it"
+        echo "    cannot set fan speed. Install it87-dkms-git and your kernel's headers."
+    fi
 fi
 
 echo ""

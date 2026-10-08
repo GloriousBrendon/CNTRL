@@ -137,33 +137,6 @@ impl FanCurveConfig {
             }
         }
     }
-
-    /// Reject a would-be mix edge that creates a cycle (checked at save time).
-    pub fn mix_would_cycle(&self, from_curve: &str, new_member: &str) -> bool {
-        if from_curve == new_member {
-            return true;
-        }
-        // Walk new_member's transitive members; if we reach from_curve, it cycles.
-        let mut stack = vec![new_member.to_string()];
-        let mut seen = 0usize;
-        while let Some(id) = stack.pop() {
-            seen += 1;
-            if seen > 256 {
-                return true; // pathological — treat as cycle
-            }
-            if id == from_curve {
-                return true;
-            }
-            if let Some(Curve {
-                kind: CurveKind::Mix { member_ids },
-                ..
-            }) = self.curve(&id)
-            {
-                stack.extend(member_ids.iter().cloned());
-            }
-        }
-        false
-    }
 }
 
 /// Linear interpolation between ordered points with clamped extrapolation.
@@ -259,12 +232,6 @@ pub struct TickState {
     smoothed: HashMap<String, f32>,
     /// channel_id → last duty% actually written.
     last_written: HashMap<String, u8>,
-}
-
-impl TickState {
-    pub fn smoothed_temp(&self, sensor_id: &str) -> Option<f32> {
-        self.smoothed.get(sensor_id).copied()
-    }
 }
 
 /// Run one control tick: read + smooth temps, evaluate each assignment, and write
@@ -398,9 +365,16 @@ fn apply_assignment(
         return unsupported(format!("channel not controllable: {}", channel.detail));
     }
 
-    // Write-skip: only write when the target moved enough vs. last written.
+    // Write-skip: only when the target barely moved AND the hardware still
+    // holds what we last wrote — something else (`cntrl fans restore`, the
+    // firmware) may have changed the fan behind our back.
     if let Some(prev) = state.last_written.get(&a.channel_id) {
-        if target.abs_diff(*prev) < cfg.min_change_pct {
+        let untouched = channel.read_enable() == Some(crate::fan_control::PWM_ENABLE_MANUAL)
+            && channel.read_pwm().is_ok_and(|raw| {
+                // ±2 raw: some drivers round the duty they report back.
+                raw.abs_diff(u32::from(crate::fan_control::pct_to_raw(*prev))) <= 2
+            });
+        if untouched && target.abs_diff(*prev) < cfg.min_change_pct {
             return FanApplyReport {
                 channel_id: a.channel_id.clone(),
                 target_pct: Some(target),
@@ -685,7 +659,6 @@ mod tests {
         });
         // Self-reference must not loop forever and must not evaluate.
         assert_eq!(cfg.eval_curve("m", &HashMap::new()), None);
-        assert!(cfg.mix_would_cycle("m", "m"));
     }
 
     /// A fake hwmon tree with one chip: firmware-controlled fan at raw 66, 40°C.
@@ -744,6 +717,27 @@ mod tests {
         assert_eq!(summary.reports[0].result, ApplyResult::Written);
         // 40°C is midway 30→50, so 40% → raw 102.
         assert_eq!(read(&root, "pwm1"), "102");
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn steady_temperature_skips_unless_fan_was_changed_behind_us() {
+        let root = fake_hwmon("skip");
+        let cfg = fake_cfg();
+        let d = crate::fan_control::discover_in(&root);
+        let mut state = TickState::default();
+        tick(&cfg, &d, &mut state, false);
+        assert_eq!(tick(&cfg, &d, &mut state, false).reports[0].result, ApplyResult::Skipped);
+
+        // Someone else rewrites the duty: the next tick must put it back.
+        std::fs::write(root.join("hwmon0/pwm1"), "30\n").unwrap();
+        assert_eq!(tick(&cfg, &d, &mut state, false).reports[0].result, ApplyResult::Written);
+        assert_eq!(read(&root, "pwm1"), "102");
+
+        // Someone hands the fan to firmware (`cntrl fans restore`): re-engage.
+        std::fs::write(root.join("hwmon0/pwm1_enable"), "2\n").unwrap();
+        assert_eq!(tick(&cfg, &d, &mut state, false).reports[0].result, ApplyResult::Written);
         assert_eq!(read(&root, "pwm1_enable"), "1");
         let _ = std::fs::remove_dir_all(root);
     }
