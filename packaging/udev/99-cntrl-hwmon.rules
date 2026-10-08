@@ -1,0 +1,24 @@
+# CNTRL — non-root fan (PWM) control over hwmon sysfs (install to /etc/udev/rules.d/).
+#
+# After installing:
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=hwmon
+# (hwmon devices don't "replug" like USB — a trigger or reboot re-applies perms.)
+#
+# Unlike hidraw nodes, hwmon *attribute* files (pwm1, pwm1_enable) do NOT inherit
+# permissions from ATTRS/GROUP matching — so we chmod/chgrp the files directly via
+# RUN+= when the hwmon device is added. temp*_input / fan*_input are already
+# world-readable (0644); only the writable pwm* files need this.
+
+# GPU fan (AMD amdgpu) — controllable via the stock kernel driver.
+# Match add AND change: a real boot fires `add`, but `udevadm trigger` (used to
+# apply the rule without a reboot) defaults to `change` — matching only `add`
+# would silently never run the chmod on a manual trigger.
+SUBSYSTEM=="hwmon", ACTION=="add|change", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chmod 664 /sys%p/pwm* 2>/dev/null; chgrp users /sys%p/pwm* 2>/dev/null'"
+
+# EXPERIMENTAL: motherboard Super I/O headers (ITE it87). The chip is often not
+# auto-detected on Gigabyte boards — load it first with:
+#   sudo cntrl fans it87-load --force-id 0x8689   (id varies by board)
+# and be aware the board's embedded controller may re-assert its own fan curve and
+# ignore PWM writes. Validate with `cntrl fans it87-spike` before trusting it.
+SUBSYSTEM=="hwmon", ACTION=="add|change", ATTR{name}=="it87", RUN+="/bin/sh -c 'chmod 664 /sys%p/pwm* 2>/dev/null; chgrp users /sys%p/pwm* 2>/dev/null'"

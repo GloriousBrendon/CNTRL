@@ -43,6 +43,48 @@ The **Canvas** tab maps every device onto one virtual effect surface: each devic
 - **Per-element trim:** each placed device has its own brightness, hue shift, and saturation sliders on top of the global effect settings.
 - **Headless:** `cntrl canvas --effect plasma --fps 20` streams with the saved layout; `--seconds N` for a timed run.
 
+## Fan control (temp→duty curves, native)
+
+The **Fans** tab is a native equivalent of Windows' *Fan Control*: it reads temperature sensors from `/sys/class/hwmon` and drives fan PWM channels with custom curves. No external tools — plain sysfs, same "native-only" philosophy as the lighting.
+
+- **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. On this machine the **GPU fan** (`amdgpu`) works out of the box. Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
+- **Curves:** drag points on the graph (temp on X, duty% on Y), click empty space to add a point, right-click to delete. Linear interpolation with clamped ends, exactly like Fan Control. Each channel also has a **min/max duty** envelope. Temps are EMA-smoothed (the "Response Time" knob) and a small change threshold prevents fan hunting.
+- **The engine:** enable it with the **Enable engine** toggle (or `enabled: true` in `~/.config/cntrl/fan_curves.json`). It runs inside `cntrl daemon`, or standalone in the foreground via `cntrl fans run`. The GUI only edits the JSON; the engine picks up changes on its next tick — the same relationship the theme watcher has with `settings.json`.
+- **Safety:** on start the engine records each driven fan's original mode/PWM and flips it to manual. On Ctrl-C, SIGTERM, or a panic it **restores** every fan to exactly what it was. `SIGKILL` (`kill -9`) can't be trapped — if that happens, `cntrl fans restore` puts the fans back.
+
+### First-time setup (permissions)
+
+hwmon PWM files are root-only by default. Install the udev rule so CNTRL can drive fans as your user:
+
+```bash
+sudo install -Dm644 packaging/udev/99-cntrl-hwmon.rules /etc/udev/rules.d/99-cntrl-hwmon.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon
+cntrl fans list      # the GPU fan should now read "Controllable"
+```
+
+(hwmon devices don't "replug" like USB — the `udevadm trigger` re-applies perms; a reboot also works.)
+
+### CLI
+
+```bash
+cntrl fans list                 # sensors + channels, with status and why-blocked detail
+cntrl fans apply --dry-run      # show the duty each curve would command right now
+cntrl fans run                  # run the engine in the foreground (Ctrl-C restores fans)
+cntrl fans restore              # recover fans after a SIGKILL / crash
+```
+
+### Motherboard headers (experimental)
+
+Case-fan headers hang off the board's Super I/O chip (ITE `it87`), which Gigabyte boards often don't advertise, so the driver isn't auto-loaded. Load it, then **validate before trusting it** — on many Gigabyte boards the embedded controller re-asserts its own fan curve and silently ignores PWM writes:
+
+```bash
+sudo cntrl fans it87-load --force-id 0x8689     # chip id varies by board (IT8689E here)
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon
+cntrl fans it87-spike --channel it87/pwm1 --value 200 --seconds 30
+```
+
+The spike drives one header to a fixed duty and watches its tach: **PASS** = the RPM moved and held, so control is real; **FAIL** = the RPM drifted back to baseline (the EC is overriding writes — control isn't usable on this board); **INCONCLUSIVE** = no tach wired. The channel is restored regardless. Motherboard channels always show an **Experimental** badge in the Fans tab.
+
 ## Theme switcher sync
 
 CNTRL follows a pywal-style `~/.config/themes/colors.conf`; its `accent` key drives the lighting. Two ways to use it:
@@ -120,6 +162,34 @@ This unit runs:
 ```bash
 cntrl probe-rgb --force --no-apply
 ```
+
+## Restoring lighting after boot, suspend and hibernate
+
+Saved per-device lighting lives in `~/.config/cntrl/device_state.json`; `cntrl restore`
+re-applies every entry. Two units drive it, and you want **both** — they cover
+different events:
+
+| Unit | Manager | Covers |
+|------|---------|--------|
+| `packaging/systemd/cntrl-restore.service` | user (`systemctl --user`) | login / boot |
+| `packaging/systemd/cntrl-resume@.service` | system (`sudo systemctl`) | resume from suspend, hibernate, hybrid-sleep |
+
+Sleep targets only exist in the *system* manager, so the resume hook cannot be a
+user unit — it is a template instantiated for your username, running as you (and
+so with the `users` group access the udev rules grant):
+
+```bash
+sudo install -Dm644 packaging/systemd/cntrl-resume@.service \
+    /etc/systemd/system/cntrl-resume@.service
+sudo systemctl daemon-reload
+sudo systemctl enable "cntrl-resume@$USER.service"
+```
+
+`INSTALL_SYSTEMD=1 ./scripts/install.sh` does this for you.
+
+Note that `Off` is a state like any other: if the last thing you applied to a
+device was the Off effect, that is what boot and resume restore. Applying any
+color (including via theme sync) records the new state and clears it.
 
 That reprobes with OpenRGB and persists mapping to `~/.config/cntrl/pc_rgb_probe.json`. Runtime apply paths then auto-load this mapping.
 

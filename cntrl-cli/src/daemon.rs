@@ -34,20 +34,61 @@ fn run_unix() -> Result<(), String> {
     }
     let listener = UnixListener::bind(&path).map_err(|e| e.to_string())?;
     eprintln!("cntrl daemon: listening on {}", path.display());
+
+    // Fan-control safety: restore fans on SIGINT/SIGTERM/panic before exit.
+    cntrl_core::fan_engine::install_panic_hook();
+    cntrl_core::fan_engine::install_signal_handlers();
+
     std::thread::spawn(theme_watcher);
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
+    std::thread::spawn(fan_watcher);
+
+    // Non-blocking accept so the main loop can notice a stop request (signal) and
+    // shut down cleanly, letting the fan engine restore hardware.
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| e.to_string())?;
+    while !cntrl_core::fan_engine::should_stop() {
+        match listener.accept() {
+            Ok((s, _)) => {
                 std::thread::spawn(move || {
                     if let Err(e) = handle_client(s) {
                         eprintln!("cntrl daemon: client error: {e}");
                     }
                 });
             }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
             Err(e) => eprintln!("cntrl daemon: accept error: {e}"),
         }
     }
+
+    let _ = std::fs::remove_file(&path);
+    eprintln!("cntrl daemon: stopped.");
     Ok(())
+}
+
+/// Background fan control loop, mirroring `theme_watcher`'s shape. Reloads the
+/// curve config every tick (so GUI edits apply live) while keeping long-lived
+/// smoothing/last-written state inside the engine loop.
+fn fan_watcher() {
+    // If a foreground `cntrl fans run` already holds the lock, don't fight it.
+    let _lock = match cntrl_core::fan_engine::acquire_lock() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("cntrl daemon: fan engine not started: {e}");
+            return;
+        }
+    };
+    cntrl_core::fan_engine::run_loop(|summary| {
+        let active = summary
+            .reports
+            .iter()
+            .any(|r| matches!(r.result, cntrl_core::fan_curves::ApplyResult::Written | cntrl_core::fan_curves::ApplyResult::Error));
+        if active {
+            eprintln!("cntrl daemon: {}", summary.short_message());
+        }
+    });
 }
 
 /// Background watcher: when theme sync is enabled in settings, re-apply the theme

@@ -14,7 +14,8 @@ use cntrl_core::persistence::{
 };
 use cntrl_core::profile::{self, ProfileDocument};
 use iced::widget::{
-    button, checkbox, column, container, row, scrollable, slider, text, text_input, Space,
+    button, checkbox, column, container, pick_list, row, scrollable, slider, text, text_input,
+    Space,
 };
 use iced::window;
 use iced::theme::Palette;
@@ -44,6 +45,11 @@ pub fn run() -> iced::Result {
                 iced::Subscription::batch([
                     theme_poll,
                     iced::time::every(Duration::from_millis(100)).map(|_| Message::CanvasTick),
+                ])
+            } else if app.tab == ShellTab::Fans {
+                iced::Subscription::batch([
+                    theme_poll,
+                    iced::time::every(Duration::from_secs(1)).map(|_| Message::FanPoll),
                 ])
             } else {
                 theme_poll
@@ -287,6 +293,7 @@ pub(crate) enum ShellTab {
     #[default]
     Lighting,
     Canvas,
+    Fans,
     Devices,
     Sync,
 }
@@ -296,21 +303,23 @@ impl ShellTab {
         match self {
             ShellTab::Lighting => "Lighting",
             ShellTab::Canvas => "Canvas",
+            ShellTab::Fans => "Fans",
             ShellTab::Devices => "Devices",
             ShellTab::Sync => "Sync",
         }
     }
 
-    fn all() -> [ShellTab; 4] {
+    fn all() -> [ShellTab; 5] {
         [
             ShellTab::Lighting,
             ShellTab::Canvas,
+            ShellTab::Fans,
             ShellTab::Devices,
             ShellTab::Sync,
         ]
     }
 
-    /// Startup tab override (`CNTRL_START_TAB=lighting|canvas|devices|sync`).
+    /// Startup tab override (`CNTRL_START_TAB=lighting|canvas|fans|devices|sync`).
     fn from_env() -> Self {
         match std::env::var("CNTRL_START_TAB")
             .unwrap_or_default()
@@ -319,6 +328,7 @@ impl ShellTab {
             .as_str()
         {
             "canvas" => ShellTab::Canvas,
+            "fans" => ShellTab::Fans,
             "devices" => ShellTab::Devices,
             "sync" => ShellTab::Sync,
             _ => ShellTab::Lighting,
@@ -445,6 +455,15 @@ struct App {
     canvas_stream: Option<StreamHandle>,
     /// Canvas tab status line (stream stats / errors / push results).
     canvas_status: String,
+    // ── Fans tab ──
+    /// Discovered temp sensors + fan channels (refreshed on tab entry + poll).
+    fan_discovery: cntrl_core::fan_control::FanDiscovery,
+    /// Persisted fan curve config (mirrors `fan_curves.json`; GUI is the editor).
+    fan_curve_cfg: cntrl_core::fan_curves::FanCurveConfig,
+    /// Selected fan channel id (drives the right-hand editor pane).
+    fan_selected: Option<String>,
+    /// Fans tab status line (save errors / hints).
+    fan_status: String,
 }
 
 /// Derive the editable lighting fields from a stored profile document.
@@ -504,7 +523,31 @@ impl App {
             canvas_t0: std::time::Instant::now(),
             canvas_stream: None,
             canvas_status: String::new(),
+            fan_discovery: cntrl_core::fan_control::discover(),
+            fan_curve_cfg: cntrl_core::fan_curves::load(),
+            fan_selected: None,
+            fan_status: String::new(),
         }
+    }
+
+    /// Persist the fan curve config, surfacing any error in the status line.
+    fn save_fan_cfg(&mut self) {
+        if let Err(e) = cntrl_core::fan_curves::save(&self.fan_curve_cfg) {
+            self.fan_status = format!("Save failed: {e}");
+        }
+    }
+
+    /// The graph curve id CNTRL manages for a given channel (one curve per channel).
+    fn curve_id_for(channel_id: &str) -> String {
+        format!("{channel_id}::curve")
+    }
+
+    /// The assignment for a channel, if one exists.
+    fn assignment_for(&self, channel_id: &str) -> Option<&cntrl_core::fan_curves::FanAssignment> {
+        self.fan_curve_cfg
+            .assignments
+            .iter()
+            .find(|a| a.channel_id == channel_id)
     }
 
     /// Push the current layout/settings into the running stream (if any) so
@@ -597,6 +640,31 @@ pub(crate) enum Message {
     CanvasDevHue(f32),
     CanvasDevSaturation(f32),
     CanvasDevReverse,
+    // ── Fans tab ──
+    /// Periodic refresh of live sensor/fan readings while the tab is open.
+    FanPoll,
+    /// Master enable for the fan control engine.
+    FanToggleEnabled(bool),
+    /// Select a channel to edit.
+    FanSelectChannel(String),
+    /// Create a default curve + assignment for a channel (using `sensor_id`).
+    FanCreateAssignment(String, String),
+    /// Remove a channel's assignment (and its managed curve).
+    FanRemoveAssignment(String),
+    /// Point in `curve_id` at `index` dragged to (temp, duty).
+    FanCurvePointMoved(String, usize, f32, f32),
+    /// Add a point to `curve_id` at (temp, duty).
+    FanCurveAddPoint(String, f32, f32),
+    /// Delete point `index` from `curve_id`.
+    FanCurveDeletePoint(String, usize),
+    /// Commit the curve edit to disk (fires on drag release / add / delete).
+    FanCurveEditDone,
+    /// Change the sensor a channel's curve reads from.
+    FanSetSensor(String, String),
+    /// Min duty floor for a channel (percent).
+    FanMinDuty(String, f32),
+    /// Max duty ceiling for a channel (percent).
+    FanMaxDuty(String, f32),
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
@@ -618,6 +686,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.tab = t;
             if t == ShellTab::Devices {
                 app.devices = cntrl_core::devices::enumerate();
+            }
+            if t == ShellTab::Fans {
+                app.fan_discovery = cntrl_core::fan_control::discover();
+                app.fan_curve_cfg = cntrl_core::fan_curves::load();
             }
             Task::none()
         }
@@ -979,7 +1051,155 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             with_selected(app, |d| d.reversed = !d.reversed);
             Task::none()
         }
+        Message::FanPoll => {
+            app.fan_discovery = cntrl_core::fan_control::discover();
+            Task::none()
+        }
+        Message::FanToggleEnabled(on) => {
+            app.fan_curve_cfg.enabled = on;
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanSelectChannel(id) => {
+            app.fan_selected = Some(id);
+            Task::none()
+        }
+        Message::FanCreateAssignment(channel_id, sensor_id) => {
+            use cntrl_core::fan_curves::{Curve, CurveKind, CurvePoint, FanAssignment};
+            let curve_id = App::curve_id_for(&channel_id);
+            // Replace any stale curve/assignment for this channel.
+            app.fan_curve_cfg.curves.retain(|c| c.id != curve_id);
+            app.fan_curve_cfg
+                .assignments
+                .retain(|a| a.channel_id != channel_id);
+            app.fan_curve_cfg.curves.push(Curve {
+                id: curve_id.clone(),
+                name: format!("{channel_id} curve"),
+                kind: CurveKind::Graph {
+                    sensor_id,
+                    points: vec![
+                        CurvePoint { temp_c: 30.0, duty_pct: 20 },
+                        CurvePoint { temp_c: 50.0, duty_pct: 40 },
+                        CurvePoint { temp_c: 70.0, duty_pct: 75 },
+                        CurvePoint { temp_c: 85.0, duty_pct: 100 },
+                    ],
+                },
+            });
+            app.fan_curve_cfg.assignments.push(FanAssignment {
+                channel_id: channel_id.clone(),
+                curve_id,
+                min_duty_pct: 20,
+                max_duty_pct: 100,
+            });
+            app.fan_selected = Some(channel_id);
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanRemoveAssignment(channel_id) => {
+            let curve_id = App::curve_id_for(&channel_id);
+            app.fan_curve_cfg.curves.retain(|c| c.id != curve_id);
+            app.fan_curve_cfg
+                .assignments
+                .retain(|a| a.channel_id != channel_id);
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanCurvePointMoved(curve_id, index, temp, duty) => {
+            if let Some(points) = graph_points_mut(app, &curve_id) {
+                if let Some(p) = points.get_mut(index) {
+                    p.temp_c = temp.clamp(0.0, 100.0);
+                    p.duty_pct = duty.clamp(0.0, 100.0).round() as u8;
+                }
+            }
+            Task::none()
+        }
+        Message::FanCurveAddPoint(curve_id, temp, duty) => {
+            if let Some(points) = graph_points_mut(app, &curve_id) {
+                points.push(cntrl_core::fan_curves::CurvePoint {
+                    temp_c: temp.clamp(0.0, 100.0),
+                    duty_pct: duty.clamp(0.0, 100.0).round() as u8,
+                });
+                sort_points(points);
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanCurveDeletePoint(curve_id, index) => {
+            if let Some(points) = graph_points_mut(app, &curve_id) {
+                // Keep at least two points so the curve stays well-defined.
+                if points.len() > 2 && index < points.len() {
+                    points.remove(index);
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanCurveEditDone => {
+            if let Some(id) = app.fan_selected.clone() {
+                let curve_id = App::curve_id_for(&id);
+                if let Some(points) = graph_points_mut(app, &curve_id) {
+                    sort_points(points);
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanSetSensor(curve_id, sensor_id) => {
+            if let Some(c) = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id) {
+                if let cntrl_core::fan_curves::CurveKind::Graph { sensor_id: s, .. } = &mut c.kind {
+                    *s = sensor_id;
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanMinDuty(channel_id, v) => {
+            if let Some(a) = app
+                .fan_curve_cfg
+                .assignments
+                .iter_mut()
+                .find(|a| a.channel_id == channel_id)
+            {
+                a.min_duty_pct = v.round().clamp(0.0, 100.0) as u8;
+                if a.min_duty_pct > a.max_duty_pct {
+                    a.max_duty_pct = a.min_duty_pct;
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanMaxDuty(channel_id, v) => {
+            if let Some(a) = app
+                .fan_curve_cfg
+                .assignments
+                .iter_mut()
+                .find(|a| a.channel_id == channel_id)
+            {
+                a.max_duty_pct = v.round().clamp(0.0, 100.0) as u8;
+                if a.max_duty_pct < a.min_duty_pct {
+                    a.min_duty_pct = a.max_duty_pct;
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
     }
+}
+
+/// Mutable access to a graph curve's points by curve id.
+fn graph_points_mut<'a>(
+    app: &'a mut App,
+    curve_id: &str,
+) -> Option<&'a mut Vec<cntrl_core::fan_curves::CurvePoint>> {
+    let c = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id)?;
+    match &mut c.kind {
+        cntrl_core::fan_curves::CurveKind::Graph { points, .. } => Some(points),
+        _ => None,
+    }
+}
+
+fn sort_points(points: &mut [cntrl_core::fan_curves::CurvePoint]) {
+    points.sort_by(|a, b| a.temp_c.partial_cmp(&b.temp_c).unwrap_or(std::cmp::Ordering::Equal));
 }
 
 /// Mutate the selected canvas device, then sync + persist.
@@ -1103,6 +1323,7 @@ fn panel_view(app: &App) -> Element<'_, Message> {
     let main: Element<'_, Message> = match app.tab {
         ShellTab::Lighting => lighting_view(app),
         ShellTab::Canvas => canvas_view(app),
+        ShellTab::Fans => fans_view(app),
         ShellTab::Devices => devices_view(app),
         ShellTab::Sync => sync_view(app),
     };
@@ -1851,6 +2072,286 @@ fn devices_view(app: &App) -> Element<'_, Message> {
     }
 
     scrollable(col).height(Length::Fill).into()
+}
+
+fn fans_view(app: &App) -> Element<'_, Message> {
+    let colors = &app.colors;
+
+    let header = row![
+        section_header(
+            "Fans",
+            "Temp→duty curves · the engine restores fans on exit",
+            colors
+        ),
+        Space::new().width(Length::Fill),
+        checkbox(app.fan_curve_cfg.enabled)
+            .label("Enable engine")
+            .on_toggle(Message::FanToggleEnabled),
+    ]
+    .align_y(Alignment::Center);
+
+    // Left: channel list.
+    let mut list = column![card_label("FAN CHANNELS", colors)].spacing(8);
+    if app.fan_discovery.channels.is_empty() {
+        list = list.push(text("No fan channels detected.").size(12).color(muted(colors)));
+    }
+    for ch in &app.fan_discovery.channels {
+        let selected = app.fan_selected.as_deref() == Some(ch.id.as_str());
+        let rpm = ch
+            .read_rpm()
+            .map(|r| format!("{r} RPM"))
+            .unwrap_or_else(|| "no tach".to_string());
+        let duty = ch
+            .read_pwm()
+            .map(|raw| format!("{}%", cntrl_core::fan_control::raw_to_pct(raw)))
+            .unwrap_or_else(|_| "—".to_string());
+        let assigned = app.assignment_for(&ch.id).is_some();
+        let mut title = row![text(ch.id.clone()).size(14)].spacing(8).align_y(Alignment::Center);
+        if ch.experimental {
+            title = title.push(badge("EXPERIMENTAL", Color::from_rgb8(0xe0, 0x9c, 0x4c)));
+        }
+        if assigned {
+            title = title.push(badge("CURVE", hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92))));
+        }
+        let body = column![
+            row![
+                title,
+                Space::new().width(Length::Fill),
+                fan_status_pill(ch.status),
+            ]
+            .align_y(Alignment::Center),
+            text(format!("{rpm} · duty {duty}")).size(11).color(muted(colors)),
+        ]
+        .spacing(4);
+        list = list.push(
+            button(body)
+                .on_press(Message::FanSelectChannel(ch.id.clone()))
+                .width(Length::Fill)
+                .padding(12)
+                .style(nav_button_style(colors, selected)),
+        );
+    }
+
+    let left = container(scrollable(list).height(Length::Fill))
+        .width(Length::FillPortion(2))
+        .height(Length::Fill);
+
+    // Right: editor for the selected channel.
+    let right = container(fan_editor_pane(app))
+        .width(Length::FillPortion(3))
+        .height(Length::Fill)
+        .padding([0, 4]);
+
+    let mut root = column![header].spacing(16);
+    if !app.fan_status.is_empty() {
+        root = root.push(text(app.fan_status.clone()).size(12).color(muted(colors)));
+    }
+    root = root.push(row![left, right].spacing(20).height(Length::Fill));
+    root.into()
+}
+
+/// The right-hand editor pane: curve graph + sensor + duty envelope, or a prompt.
+fn fan_editor_pane(app: &App) -> Element<'_, Message> {
+    use cntrl_core::fan_control::FanChannelStatus;
+    let colors = &app.colors;
+
+    let Some(sel) = app.fan_selected.clone() else {
+        return placeholder_card("Select a fan channel to edit its curve.", colors);
+    };
+    let Some(channel) = app.fan_discovery.channel(&sel) else {
+        return placeholder_card("That channel is no longer present.", colors);
+    };
+
+    if channel.status == FanChannelStatus::Blocked {
+        return placeholder_card(
+            &format!(
+                "This channel is permission-blocked:\n{}\n\nInstall packaging/udev/99-cntrl-hwmon.rules \
+                 and run: sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon",
+                channel.detail
+            ),
+            colors,
+        );
+    }
+    if channel.status == FanChannelStatus::ReadOnly {
+        return placeholder_card(
+            "This channel has no enable file, so it can't be switched to manual control.",
+            colors,
+        );
+    }
+
+    let sensor_ids: Vec<String> = app.fan_discovery.sensors.iter().map(|s| s.id.clone()).collect();
+
+    let Some(assignment) = app.assignment_for(&sel) else {
+        // No curve yet — offer to create one, defaulting the sensor sensibly.
+        let default_sensor = default_sensor_for(app, &sel);
+        let mut col = column![
+            text(format!("{sel}")).size(18),
+            text("No curve assigned yet.").size(12).color(muted(colors)),
+        ]
+        .spacing(10);
+        if let Some(sid) = default_sensor {
+            col = col.push(
+                button(text("Add curve"))
+                    .on_press(Message::FanCreateAssignment(sel.clone(), sid))
+                    .padding([9, 18])
+                    .style(segment_style(colors, true)),
+            );
+        } else {
+            col = col.push(text("No temperature sensors available.").size(12).color(muted(colors)));
+        }
+        return container(col).padding(16).width(Length::Fill).style(card(colors)).into();
+    };
+
+    // Curve editor for the assigned graph curve.
+    let curve_id = App::curve_id_for(&sel);
+    let (points, sensor_id): (&[cntrl_core::fan_curves::CurvePoint], String) = app
+        .fan_curve_cfg
+        .curve(&curve_id)
+        .and_then(|c| match &c.kind {
+            cntrl_core::fan_curves::CurveKind::Graph { points, sensor_id } => {
+                Some((points.as_slice(), sensor_id.clone()))
+            }
+            _ => None,
+        })
+        .unwrap_or((&[], String::new()));
+
+    let current_temp = app
+        .fan_discovery
+        .sensor(&sensor_id)
+        .and_then(|s| s.read_celsius().ok());
+
+    let sensor_row = row![
+        text("Sensor").size(12).color(muted(colors)),
+        pick_list(sensor_ids, Some(sensor_id.clone()), move |sid| {
+            Message::FanSetSensor(curve_id.clone(), sid)
+        })
+        .text_size(13),
+        Space::new().width(Length::Fill),
+        text(
+            current_temp
+                .map(|t| format!("now {t:.0}°C"))
+                .unwrap_or_default()
+        )
+        .size(12)
+        .color(muted(colors)),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+
+    let editor = crate::fans_tab::curve_editor(
+        App::curve_id_for(&sel),
+        points,
+        current_temp,
+        colors,
+    );
+
+    let min = assignment.min_duty_pct as f32;
+    let max = assignment.max_duty_pct as f32;
+    let ch_min = sel.clone();
+    let ch_max = sel.clone();
+    let envelope = column![
+        labeled_slider(
+            "Min duty",
+            format!("{}%", assignment.min_duty_pct),
+            0.0..=100.0,
+            min,
+            colors,
+            move |v| Message::FanMinDuty(ch_min.clone(), v),
+        ),
+        labeled_slider(
+            "Max duty",
+            format!("{}%", assignment.max_duty_pct),
+            0.0..=100.0,
+            max,
+            colors,
+            move |v| Message::FanMaxDuty(ch_max.clone(), v),
+        ),
+    ]
+    .spacing(10);
+
+    let footer = row![
+        text("Click empty space to add a point · drag to move · right-click to delete")
+            .size(11)
+            .color(muted(colors)),
+        Space::new().width(Length::Fill),
+        button(text("Remove curve"))
+            .on_press(Message::FanRemoveAssignment(sel.clone()))
+            .padding([7, 14])
+            .style(segment_style(colors, false)),
+    ]
+    .align_y(Alignment::Center);
+
+    container(
+        column![
+            text(sel.clone()).size(18),
+            sensor_row,
+            container(editor).padding(8).style(card(colors)),
+            envelope,
+            footer,
+        ]
+        .spacing(14),
+    )
+    .padding(16)
+    .width(Length::Fill)
+    .style(card(colors))
+    .into()
+}
+
+/// Pick a sensible default sensor for a channel: prefer one on the same chip.
+fn default_sensor_for(app: &App, channel_id: &str) -> Option<String> {
+    let channel = app.fan_discovery.channel(channel_id)?;
+    app.fan_discovery
+        .sensors
+        .iter()
+        .find(|s| s.chip == channel.chip)
+        .or_else(|| app.fan_discovery.sensors.first())
+        .map(|s| s.id.clone())
+}
+
+fn placeholder_card<'a>(msg: &str, colors: &theme::ThemeColors) -> Element<'a, Message> {
+    container(text(msg.to_string()).size(13).color(muted(colors)))
+        .padding(16)
+        .width(Length::Fill)
+        .style(card(colors))
+        .into()
+}
+
+/// A small colored pill badge (e.g. "EXPERIMENTAL").
+fn badge(label: &str, color: Color) -> Element<'static, Message> {
+    container(text(label.to_string()).size(9).color(color))
+        .padding([2, 6])
+        .style(move |_| container::Style {
+            border: iced::Border {
+                radius: 6.0.into(),
+                width: 1.0,
+                color,
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Status dot + label for a fan channel (mirrors `status_pill`).
+fn fan_status_pill(status: cntrl_core::fan_control::FanChannelStatus) -> Element<'static, Message> {
+    use cntrl_core::fan_control::FanChannelStatus;
+    let color = match status {
+        FanChannelStatus::Controllable => Color::from_rgb8(0x4c, 0xc2, 0x6a),
+        FanChannelStatus::Blocked => Color::from_rgb8(0xe0, 0x6c, 0x4c),
+        FanChannelStatus::ReadOnly => Color::from_rgb8(0xe0, 0x9c, 0x4c),
+        FanChannelStatus::Absent => Color::from_rgb8(0x80, 0x80, 0x80),
+    };
+    let dot = container(Space::new().width(8).height(8)).style(move |_| container::Style {
+        background: Some(color.into()),
+        border: iced::Border {
+            radius: 4.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    row![dot, text(status.label()).size(11).color(color)]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 fn effect_btn(

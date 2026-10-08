@@ -12,5 +12,5 @@ hex = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 hidapi = "2"
-nix = { version = "0.29", features = ["poll"] }
+nix = { version = "0.29", features = ["poll", "signal"] }
 i2cdev = "0.6"

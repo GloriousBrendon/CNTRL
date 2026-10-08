@@ -2,7 +2,7 @@
 
 mod daemon;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "cntrl", version, about = "CNTRL — keyboard lighting control")]
@@ -62,6 +62,8 @@ enum Commands {
         #[arg(long)]
         list: bool,
     },
+    /// Fan control: discover sensors/channels, validate, and drive curves.
+    Fans(FanArgs),
     /// Quick lighting test frontend (no ad-hoc socket scripts).
     TestLight {
         /// Profile slot to read/update (0..=3).
@@ -94,6 +96,48 @@ enum Commands {
     },
 }
 
+#[derive(Args)]
+struct FanArgs {
+    #[command(subcommand)]
+    command: FanCommands,
+}
+
+#[derive(Subcommand)]
+enum FanCommands {
+    /// List discovered temperature sensors and fan channels with status.
+    List,
+    /// Load the it87 Super I/O driver (experimental; requires root).
+    It87Load {
+        /// Forced chip id, e.g. 0x8689 for IT8689E.
+        #[arg(long)]
+        force_id: String,
+    },
+    /// Drive one channel to a fixed PWM and watch its RPM to see if it holds.
+    It87Spike {
+        /// Channel id from `fans list`, e.g. `it87/pwm1`.
+        #[arg(long)]
+        channel: String,
+        /// Raw PWM value to command (0..=255).
+        #[arg(long, default_value_t = 200)]
+        value: u8,
+        /// How long to watch the tach, in seconds.
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+    },
+    /// Print the saved fan curve config (~/.config/cntrl/fan_curves.json).
+    Curves,
+    /// Run one control tick and print the per-channel report.
+    Apply {
+        /// Compute targets but don't write to hardware.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Run the fan control engine in the foreground until Ctrl-C.
+    Run,
+    /// Restore all driven fans to their pre-engine state (recovery path).
+    Restore,
+}
+
 fn main() {
     let code = match run() {
         Ok(()) => 0,
@@ -124,6 +168,7 @@ fn run() -> Result<(), String> {
             seconds,
             list,
         } => run_canvas(effect.as_deref(), fps, seconds, list),
+        Commands::Fans(args) => run_fans(args),
         Commands::TestLight {
             slot,
             color,
@@ -308,30 +353,187 @@ fn run_restore() -> Result<(), String> {
     Ok(())
 }
 
-/// Record the applied lighting per backend so `cntrl restore` can bring it back.
-fn remember_targets(doc: &cntrl_core::profile::ProfileDocument, keyboard: bool, pc: bool) {
-    let cfg = &doc.data.light.config;
-    let mut backends: Vec<String> = Vec::new();
-    if keyboard {
-        backends.push("keyboard".into());
-    }
-    if pc {
-        // Respect the currently selected PC backends (CNTRL_PC_RGB_BACKENDS), else all.
-        let raw = std::env::var("CNTRL_PC_RGB_BACKENDS")
-            .unwrap_or_else(|_| "corsair_ram,ite_rgb,gpu_rgb".to_string());
-        for b in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            backends.push(b.to_string());
+fn run_fans(args: FanArgs) -> Result<(), String> {
+    match args.command {
+        FanCommands::List => run_fans_list(),
+        FanCommands::It87Load { force_id } => {
+            let msg = cntrl_core::fan_control::it87_load(&force_id)?;
+            println!("{msg}");
+            println!(
+                "Now refresh hwmon permissions:\n  \
+                 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon\n\
+                 then run `cntrl fans list` to see the new it87 channels."
+            );
+            Ok(())
+        }
+        FanCommands::It87Spike {
+            channel,
+            value,
+            seconds,
+        } => run_fans_spike(&channel, value, seconds),
+        FanCommands::Curves => run_fans_curves(),
+        FanCommands::Apply { dry_run } => run_fans_apply(dry_run),
+        FanCommands::Run => run_fans_engine(),
+        FanCommands::Restore => {
+            let msg = cntrl_core::fan_curves::restore_all();
+            println!("{msg}");
+            Ok(())
         }
     }
-    if !backends.is_empty() {
-        cntrl_core::device_state::remember(
-            &backends,
-            &cfg.hex_color,
-            cfg.effect,
-            cfg.brightness,
-            cfg.speed,
+}
+
+fn run_fans_curves() -> Result<(), String> {
+    let path = cntrl_core::fan_curves::curves_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            println!("# {}", path.display());
+            print!("{raw}");
+            Ok(())
+        }
+        Err(_) => {
+            println!("no fan curve config yet at {}", path.display());
+            println!("(create curves in the panel's Fans tab, or edit the JSON directly)");
+            Ok(())
+        }
+    }
+}
+
+fn run_fans_apply(dry_run: bool) -> Result<(), String> {
+    use cntrl_core::{fan_control, fan_curves};
+
+    let cfg = fan_curves::load();
+    if cfg.assignments.is_empty() {
+        println!("no fan assignments configured — nothing to apply");
+        return Ok(());
+    }
+    let discovery = fan_control::discover();
+    let mut state = fan_curves::TickState::default();
+    let summary = fan_curves::tick(&cfg, &discovery, &mut state, dry_run);
+
+    println!("{}", summary.short_message());
+    for r in &summary.reports {
+        let target = r
+            .target_pct
+            .map(|p| format!("{p}%"))
+            .unwrap_or_else(|| "—".to_string());
+        println!("  {} → {target}  [{:?}]  {}", r.channel_id, r.result, r.reason);
+    }
+    Ok(())
+}
+
+fn run_fans_engine() -> Result<(), String> {
+    use cntrl_core::{fan_curves, fan_engine};
+
+    let cfg = fan_curves::load();
+    if !cfg.enabled {
+        println!("note: fan control is disabled (enabled=false in fan_curves.json).");
+        println!("      The engine will idle until you enable it (e.g. in the Fans tab).");
+    }
+
+    let _lock = fan_engine::acquire_lock()?;
+    fan_engine::install_panic_hook();
+    fan_engine::install_signal_handlers();
+
+    println!("fan engine running — Ctrl-C to stop and restore fans.");
+    fan_engine::run_loop(|summary| {
+        let has_activity = summary
+            .reports
+            .iter()
+            .any(|r| !matches!(r.result, cntrl_core::fan_curves::ApplyResult::Skipped));
+        if has_activity {
+            println!("  {}", summary.short_message());
+            for r in &summary.reports {
+                if !matches!(r.result, cntrl_core::fan_curves::ApplyResult::Skipped) {
+                    println!("    {} {}", r.channel_id, r.reason);
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+fn run_fans_list() -> Result<(), String> {
+    use cntrl_core::fan_control::{self, FanChannelStatus};
+
+    let disc = fan_control::discover();
+    let mut blocked = false;
+
+    println!("Temperature sensors ({}):\n", disc.sensors.len());
+    for s in &disc.sensors {
+        let temp = s
+            .read_celsius()
+            .map(|c| format!("{c:.1}°C"))
+            .unwrap_or_else(|_| "—".to_string());
+        println!("  ● {id}  [{chip}]  {label}  {temp}", id = s.id, chip = s.chip, label = s.label);
+    }
+
+    println!("\nFan channels ({}):\n", disc.channels.len());
+    for c in &disc.channels {
+        let mark = match c.status {
+            FanChannelStatus::Controllable => "●",
+            FanChannelStatus::Blocked => "✗",
+            FanChannelStatus::ReadOnly => "◐",
+            FanChannelStatus::Absent => "○",
+        };
+        if c.status == FanChannelStatus::Blocked {
+            blocked = true;
+        }
+        let rpm = c
+            .read_rpm()
+            .map(|r| format!("{r} RPM"))
+            .unwrap_or_else(|| "no tach".to_string());
+        let duty = c
+            .read_pwm()
+            .map(|raw| format!("{}%", fan_control::raw_to_pct(raw)))
+            .unwrap_or_else(|_| "—".to_string());
+        let exp = if c.experimental { "  [experimental]" } else { "" };
+        println!("  {mark} {id}  [{chip}]  {rpm}  duty={duty}{exp}", id = c.id, chip = c.chip);
+        println!("      status={}", c.status.label());
+        println!("      {}", c.detail);
+    }
+
+    if blocked {
+        println!(
+            "\nA channel is permission-blocked. Install the hwmon udev rule:\n  \
+             sudo install -Dm644 packaging/udev/99-cntrl-hwmon.rules \
+             /etc/udev/rules.d/99-cntrl-hwmon.rules \\\n    \
+             && sudo udevadm control --reload-rules \
+             && sudo udevadm trigger --subsystem-match=hwmon"
         );
     }
+    Ok(())
+}
+
+fn run_fans_spike(channel_id: &str, value: u8, seconds: u64) -> Result<(), String> {
+    use cntrl_core::fan_control;
+
+    let disc = fan_control::discover();
+    let channel = disc
+        .channel(channel_id)
+        .ok_or_else(|| format!("unknown channel {channel_id:?}; see `cntrl fans list`"))?;
+
+    println!(
+        "Spiking {channel_id} to raw PWM {value} ({}%) for {seconds}s — watching {}...",
+        fan_control::raw_to_pct(value as u32),
+        channel
+            .tach_file
+            .as_ref()
+            .map(|_| "tach")
+            .unwrap_or("(no tach)"),
+    );
+    if let Some(b) = channel.read_rpm() {
+        println!("  baseline: {b} RPM");
+    }
+
+    let report = fan_control::it87_spike(channel, value, seconds, |elapsed, rpm| {
+        let rpm = rpm.map(|r| format!("{r} RPM")).unwrap_or_else(|| "—".to_string());
+        println!("  t={elapsed:>3}s  {rpm}");
+    })?;
+
+    println!("\n  verdict: {}", report.verdict.label());
+    println!("  {}", report.note);
+    println!("  (channel restored to its original state)");
+    Ok(())
 }
 
 fn run_apply_theme(slot: Option<u8>, keyboard_only: bool, pc_only: bool) -> Result<(), String> {
@@ -351,11 +553,9 @@ fn run_apply_theme(slot: Option<u8>, keyboard_only: bool, pc_only: bool) -> Resu
         ApplyOptions::ALL
     };
 
+    // `apply_theme` records the applied state itself (device_state::remember_applied);
+    // re-saving the on-disk slot here would clobber it with the pre-promotion effect.
     let (r, g, b) = theme_sync::apply_theme(slot, options)?;
-    // Record so the theme color survives a reboot (via `cntrl restore`).
-    if let Ok(doc) = cntrl_core::persistence::load_profile_slot(slot) {
-        remember_targets(&doc, options.keyboard, options.pc_rgb);
-    }
     println!("applied theme color #{r:02x}{g:02x}{b:02x} to slot {slot}");
     Ok(())
 }
@@ -445,7 +645,7 @@ fn run_test_light(
     } else {
         ipc::apply_local_or_daemon(&doc, slot)?;
     }
-    remember_targets(&doc, options.keyboard, options.pc_rgb);
+    cntrl_core::device_state::remember_applied(&doc, options);
     println!(
         "applied slot={slot} effect={} color={} speed={} brightness={} path={}",
         doc.data.light.config.effect,

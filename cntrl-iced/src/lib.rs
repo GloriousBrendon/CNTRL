@@ -2,6 +2,7 @@
 
 mod app;
 mod canvas_tab;
+mod fans_tab;
 
 /// Launch the full-size ICED shell.
 pub fn run() -> iced::Result {
