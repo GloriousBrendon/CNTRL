@@ -110,6 +110,18 @@ pub const DEV_RAM1: &str = "ram1";
 /// device, sampled as the average under its box.
 pub const DEV_RGB12V: &str = "rgb12v";
 
+/// The motherboard's own lit zones (ITE zones that are neither an ARGB header
+/// nor the 12V header), as `(canvas id, zone index)`. Which of them a board
+/// really wires up varies; they start disabled, and Identify shows what each is.
+pub fn board_zones() -> Vec<(String, u8)> {
+    let rgb12v = crate::ite_rgb::rgb12v_zone();
+    (0..8u8)
+        // Zones 3 and 4 are the D_LED1 / D_LED2 strip headers.
+        .filter(|z| ![3, 4, rgb12v].contains(z))
+        .map(|z| (format!("mbzone{z}"), z))
+        .collect()
+}
+
 /// LED geometry of one device in its own local units, SignalRGB-style:
 /// `size` is the bounding box, `led_positions` one `[x,y]` per LED in order.
 #[derive(Debug, Clone)]
@@ -254,6 +266,17 @@ pub fn all_specs(chains: &Chains) -> Vec<LedSpec> {
     out.push(ram_spec(DEV_RAM0, "RAM 1"));
     out.push(ram_spec(DEV_RAM1, "RAM 2"));
     out.push(rgb12v_spec());
+    for (id, zone) in board_zones() {
+        // One color per zone — a few sample points, averaged like the 12V header.
+        out.push(LedSpec {
+            id,
+            name: format!("Board zone {zone}"),
+            size: (4.0, 1.5),
+            led_positions: vec![(0.75, 0.75), (2.0, 0.75), (3.25, 0.75)],
+            is_fan: false,
+            streamable: true,
+        });
+    }
     out
 }
 
@@ -481,6 +504,54 @@ pub struct EffectValues {
     pub palette: Vec<[u8; 3]>,
 }
 
+/// How an overlay effect is mixed onto the base effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Blend {
+    /// Overlay replaces the base (at its opacity).
+    Normal,
+    /// Light adds up — sparkles over a color.
+    Add,
+    /// Like Add but never clips; softer.
+    Screen,
+    /// Overlay darkens — a moving mask over the base.
+    Multiply,
+}
+
+impl Blend {
+    pub const ALL: [Blend; 4] = [Blend::Add, Blend::Screen, Blend::Multiply, Blend::Normal];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Blend::Normal => "Normal",
+            Blend::Add => "Add",
+            Blend::Screen => "Screen",
+            Blend::Multiply => "Multiply",
+        }
+    }
+
+    /// Mix one channel of `top` onto `base` at `opacity` (0..=1).
+    fn mix(self, base: u8, top: u8, opacity: f32) -> u8 {
+        let (a, b) = (base as f32, top as f32);
+        let blended = match self {
+            Blend::Normal => b,
+            Blend::Add => (a + b).min(255.0),
+            Blend::Screen => 255.0 - (255.0 - a) * (255.0 - b) / 255.0,
+            Blend::Multiply => a * b / 255.0,
+        };
+        (a + (blended - a) * opacity.clamp(0.0, 1.0)).round() as u8
+    }
+}
+
+/// A second effect drawn over the base one. It uses that effect's own saved
+/// tuning (speed, colors…) — tune it by selecting it as the main effect once.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Overlay {
+    pub effect: EffectKind,
+    pub blend: Blend,
+    /// 0–100.
+    pub opacity: f32,
+}
+
 /// Canvas-wide effect settings that persist with the layout. `speed`, `scale`
 /// and `palette` belong to the active effect; other effects' values wait in
 /// `saved`.
@@ -502,6 +573,9 @@ pub struct EffectSettings {
     pub accent_from_theme: bool,
     pub fps: u32,
     pub saved: std::collections::BTreeMap<EffectKind, EffectValues>,
+    pub overlay: Option<Overlay>,
+    /// Scale the whole canvas brightness with the music's loudness.
+    pub audio_brightness: bool,
 }
 
 impl Default for EffectSettings {
@@ -517,6 +591,8 @@ impl Default for EffectSettings {
             accent_from_theme: false,
             fps: 20,
             saved: Default::default(),
+            overlay: None,
+            audio_brightness: false,
         }
     }
 }
@@ -559,6 +635,59 @@ impl EffectSettings {
             self.palette.push(self.effect.default_color(i));
         }
         // Extra colors are kept (an effect with fewer simply ignores them).
+    }
+
+    /// Does anything in these settings react to sound?
+    pub fn needs_audio(&self) -> bool {
+        self.audio_brightness
+            || self.effect.uses_audio()
+            || self.overlay.is_some_and(|o| o.effect.uses_audio())
+    }
+
+    /// Parameters for an effect that isn't the active one: its saved tuning,
+    /// or its defaults.
+    fn params_for(&self, effect: EffectKind) -> crate::canvas_effects::EffectParams {
+        if effect == self.effect {
+            return self.params();
+        }
+        let wanted = effect.controls().colors;
+        let saved = self.saved.get(&effect);
+        crate::canvas_effects::EffectParams {
+            speed: saved.map_or(1.0, |v| v.speed),
+            scale: saved.map_or(1.0, |v| v.scale),
+            angle: saved.map_or(0.0, |v| v.angle),
+            palette: (0..wanted)
+                .map(|i| {
+                    saved
+                        .and_then(|v| v.palette.get(i).copied())
+                        .unwrap_or(effect.default_color(i))
+                })
+                .collect(),
+        }
+    }
+
+    /// Draw the whole look — base effect, overlay, audio brightness — into
+    /// `frame`. The one place preview and hardware both render through.
+    pub fn render_into(&self, frame: &mut Frame, t: f32, input: &crate::canvas_effects::EffectInput) {
+        use crate::canvas_effects::render;
+        render(self.effect, frame, t, &self.params(), input);
+        if let Some(overlay) = self.overlay {
+            let mut top = Frame::new(frame.width, frame.height);
+            render(overlay.effect, &mut top, t, &self.params_for(overlay.effect), input);
+            let opacity = overlay.opacity / 100.0;
+            for (base, top) in frame.px.iter_mut().zip(&top.px) {
+                for c in 0..3 {
+                    base[c] = overlay.blend.mix(base[c], top[c], opacity);
+                }
+            }
+        }
+        if self.audio_brightness {
+            // Never fully dark: silence dims the scene instead of blanking it.
+            let k = 0.2 + 0.8 * input.audio.level.clamp(0.0, 1.0);
+            for px in frame.px.iter_mut() {
+                *px = px.map(|c| (c as f32 * k) as u8);
+            }
+        }
     }
 
     /// What the effect functions take. Resolves the theme accent if enabled.
@@ -640,6 +769,10 @@ impl CanvasLayout {
             let i: f32 = rest.parse().unwrap_or(0.0);
             return place(10.0 + i * 26.0, 66.0, if self.chains.dled2.len() == 1 { 4.0 } else { 5.0 });
         }
+        if let Some(zone) = id.strip_prefix("mbzone") {
+            let i: f32 = zone.parse().unwrap_or(0.0);
+            return place(140.0, 34.0 + i * 6.0, 3.0);
+        }
         match id {
             DEV_KEYBOARD => place(50.0, 35.0, 4.0),
             DEV_GPU => place(128.0, 42.0, 4.0),
@@ -660,7 +793,11 @@ impl CanvasLayout {
         for spec in &specs {
             if !self.devices.iter().any(|d| d.id == spec.id) {
                 let placement = self.default_placement(&spec.id);
-                self.devices.push(PlacedDevice::new(spec.id.clone(), placement));
+                let mut placed = PlacedDevice::new(spec.id.clone(), placement);
+                // Opt-in: most boards wire up only some zones, and writing a
+                // zone takes it away from the firmware's own lighting.
+                placed.enabled = !spec.id.starts_with("mbzone");
+                self.devices.push(placed);
             }
         }
     }
@@ -921,6 +1058,52 @@ mod tests {
         assert!(!json.contains("\"color\""));
         let back: EffectSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.saved[&EffectKind::Comet].palette, vec![[1, 2, 3]]);
+    }
+
+    #[test]
+    fn blend_modes_on_fixed_pixels() {
+        assert_eq!(Blend::Normal.mix(100, 200, 1.0), 200);
+        assert_eq!(Blend::Normal.mix(100, 200, 0.5), 150);
+        assert_eq!(Blend::Add.mix(100, 200, 1.0), 255);
+        assert_eq!(Blend::Add.mix(100, 50, 1.0), 150);
+        assert_eq!(Blend::Screen.mix(0, 200, 1.0), 200);
+        assert_eq!(Blend::Screen.mix(255, 200, 1.0), 255);
+        assert_eq!(Blend::Multiply.mix(255, 100, 1.0), 100);
+        assert_eq!(Blend::Multiply.mix(100, 0, 1.0), 0);
+        // Zero opacity leaves the base alone in every mode.
+        for blend in Blend::ALL {
+            assert_eq!(blend.mix(77, 200, 0.0), 77);
+        }
+    }
+
+    #[test]
+    fn overlay_and_audio_brightness_change_the_frame() {
+        let input = crate::canvas_effects::EffectInput::default();
+        let mut s = EffectSettings::default();
+        s.set_effect(EffectKind::Solid);
+        let mut base = Frame::new(32, 18);
+        s.render_into(&mut base, 1.0, &input);
+        assert_eq!(base.get(5, 5), s.palette[0]);
+
+        // Twinkle added on top: no pixel gets darker, some get brighter.
+        s.overlay = Some(Overlay {
+            effect: EffectKind::Twinkle,
+            blend: Blend::Add,
+            opacity: 100.0,
+        });
+        let mut layered = Frame::new(32, 18);
+        s.render_into(&mut layered, 1.0, &input);
+        assert!(layered.px.iter().zip(&base.px).all(|(l, b)| (0..3).all(|c| l[c] >= b[c])));
+        assert_ne!(layered.px, base.px);
+        assert!(!s.needs_audio());
+
+        // In silence, audio brightness dims the scene to its floor.
+        s.overlay = None;
+        s.audio_brightness = true;
+        assert!(s.needs_audio());
+        let mut dim = Frame::new(32, 18);
+        s.render_into(&mut dim, 1.0, &input);
+        assert_eq!(dim.get(5, 5), s.palette[0].map(|c| (c as f32 * 0.2) as u8));
     }
 
     #[test]

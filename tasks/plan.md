@@ -166,13 +166,13 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 ### Checkpoint D: effect survives closing the panel, reboot, suspend
 
 ### Phase 6: Dynamic canvas
-- [ ] Task 26: Onboard motherboard zones as canvas devices
+- [x] Task 26: Onboard motherboard zones as canvas devices
 - [x] Task 27: Effect library, batch 1 (everyday)
 - [x] Task 28: Effect library, batch 2 (ambient)
-- [ ] Task 29: Layers
-- [ ] Task 30: Effect inputs (live data into effects)
-- [ ] Task 31: Audio capture to frequency bands
-- [ ] Task 32: Audio effects
+- [x] Task 29: Layers
+- [x] Task 30: Effect inputs (live data into effects)
+- [x] Task 31: Audio capture to frequency bands
+- [x] Task 32: Audio effects
 - [ ] Task 33: Screen capture to a canvas frame
 - [ ] Task 34: Screen Ambient effect
 

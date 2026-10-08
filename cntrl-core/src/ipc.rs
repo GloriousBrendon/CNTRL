@@ -56,6 +56,20 @@ pub struct CanvasStatus {
     pub backends: String,
     pub timing: String,
     pub last_error: Option<String>,
+    /// Audio levels the stream is rendering with, so a preview can match.
+    pub bands: Vec<f32>,
+    pub level: f32,
+}
+
+impl CanvasStatus {
+    pub fn input(&self) -> crate::canvas_effects::EffectInput {
+        let mut input = crate::canvas_effects::EffectInput::default();
+        for (dst, src) in input.audio.bands.iter_mut().zip(&self.bands) {
+            *dst = *src;
+        }
+        input.audio.level = self.level;
+        input
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

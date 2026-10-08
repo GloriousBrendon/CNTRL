@@ -464,6 +464,8 @@ struct App {
     /// Layout/identify changed since the daemon last heard from us.
     canvas_dirty: bool,
     canvas_ticks: u32,
+    /// Audio levels the running stream renders with, mirrored in the preview.
+    canvas_input: cntrl_core::canvas_effects::EffectInput,
     /// Canvas tab status line (stream stats / errors / push results).
     canvas_status: String,
     /// Identify mode: the stream lights only the selected device.
@@ -518,7 +520,7 @@ impl App {
         let (effect_id, brightness, speed, current_color, hsl) = derive_profile_state(&doc);
         let fan_discovery = cntrl_core::fan_control::discover();
         let canvas_layout = core_canvas::load_layout();
-        let canvas_preview = canvas_tab::render_preview(&canvas_layout, 0.0);
+        let canvas_preview = canvas_tab::render_preview(&canvas_layout, 0.0, &Default::default());
 
         Self {
             ui_theme: Theme::Dark,
@@ -546,6 +548,7 @@ impl App {
             canvas_remote_t0: std::time::Instant::now(),
             canvas_dirty: false,
             canvas_ticks: 0,
+            canvas_input: Default::default(),
             canvas_status: String::new(),
             canvas_identify: false,
             canvas_color_idx: 0,
@@ -589,6 +592,7 @@ impl App {
     ) {
         match reply {
             Ok(Some(st)) if st.running => {
+                self.canvas_input = st.input();
                 self.canvas_remote = true;
                 self.canvas_remote_t0 = std::time::Instant::now()
                     - std::time::Duration::from_secs_f32(st.elapsed_secs.max(0.0));
@@ -742,6 +746,11 @@ pub(crate) enum Message {
     CanvasThemeAccent(bool),
     /// Daemon starts the stream at login.
     CanvasAutostart(bool),
+    /// Second effect drawn over the main one (`None` = off).
+    CanvasOverlayEffect(Option<EffectKind>),
+    CanvasOverlayBlend(cntrl_core::canvas::Blend),
+    CanvasOverlayOpacity(f32),
+    CanvasAudioBrightness(bool),
     // Per-element trim on the selected device.
     CanvasDevBrightness(f32),
     CanvasDevHue(f32),
@@ -963,10 +972,10 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 None => app.canvas_t0,
             };
             let t = t0.elapsed().as_secs_f32();
-            app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t);
             // Surface live stream stats while running.
             if let Some(stream) = &app.canvas_stream {
                 let st = stream.status();
+                app.canvas_input = st.input();
                 app.canvas_status = stream_status_line(
                     "Streaming",
                     st.fps,
@@ -976,9 +985,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     st.last_error.as_deref(),
                 );
             }
-            // Daemon stream: push edits at most once a tick, poll twice a second.
+            // Daemon stream: push edits at most once a tick; poll twice a second,
+            // or every tick while the preview has to follow the music.
             app.canvas_ticks = app.canvas_ticks.wrapping_add(1);
-            if app.canvas_remote && (app.canvas_dirty || app.canvas_ticks % 15 == 0) {
+            let follow = app.canvas_layout.settings.needs_audio();
+            if app.canvas_remote && (app.canvas_dirty || follow || app.canvas_ticks % 15 == 0) {
                 use cntrl_core::ipc::{canvas_request, Request};
                 let req = if std::mem::take(&mut app.canvas_dirty) {
                     Request::CanvasUpdate {
@@ -993,6 +1004,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 };
                 app.on_canvas_reply(canvas_request(&req));
             }
+            if !app.streaming() {
+                // Nothing is capturing sound: preview audio effects in silence.
+                app.canvas_input = Default::default();
+            }
+            app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t, &app.canvas_input);
             Task::none()
         }
         Message::CanvasColorSelect(i) => {
@@ -1125,6 +1141,39 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.on_canvas_reply(reply);
                 }
             }
+            Task::none()
+        }
+        Message::CanvasOverlayEffect(effect) => {
+            let settings = &mut app.canvas_layout.settings;
+            settings.overlay = effect.map(|effect| cntrl_core::canvas::Overlay {
+                effect,
+                // Keep the blend and opacity already chosen, if any.
+                blend: settings.overlay.map_or(cntrl_core::canvas::Blend::Add, |o| o.blend),
+                opacity: settings.overlay.map_or(100.0, |o| o.opacity),
+            });
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasOverlayBlend(blend) => {
+            if let Some(o) = &mut app.canvas_layout.settings.overlay {
+                o.blend = blend;
+            }
+            app.sync_stream();
+            app.save_canvas_layout();
+            Task::none()
+        }
+        Message::CanvasOverlayOpacity(v) => {
+            if let Some(o) = &mut app.canvas_layout.settings.overlay {
+                o.opacity = v.clamp(0.0, 100.0);
+            }
+            app.sync_stream();
+            Task::none()
+        }
+        Message::CanvasAudioBrightness(on) => {
+            app.canvas_layout.settings.audio_brightness = on;
+            app.sync_stream();
+            app.save_canvas_layout();
             Task::none()
         }
         Message::CanvasAutostart(on) => {
@@ -2003,6 +2052,51 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             .into()
     };
 
+    // ── layer: a second effect over the main one, plus audio brightness ──
+    let mut layer_row = row![
+        text("Layer on top").size(12).color(muted(colors)),
+        pick_list(EffectKind::ALL, s.overlay.map(|o| o.effect), |e| {
+            Message::CanvasOverlayEffect(Some(e))
+        })
+        .placeholder("none")
+        .text_size(12),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if let Some(overlay) = s.overlay {
+        layer_row = layer_row.push(
+            button(text("✕").size(11))
+                .on_press(Message::CanvasOverlayEffect(None))
+                .padding([5, 9])
+                .style(segment_style(colors, false)),
+        );
+        for blend in cntrl_core::canvas::Blend::ALL {
+            layer_row = layer_row.push(
+                button(text(blend.label()).size(11))
+                    .on_press(Message::CanvasOverlayBlend(blend))
+                    .padding([5, 9])
+                    .style(segment_style(colors, overlay.blend == blend)),
+            );
+        }
+        layer_row = layer_row.push(
+            container(labeled_slider_released(
+                "Opacity",
+                format!("{:.0}%", overlay.opacity),
+                0.0..=100.0,
+                overlay.opacity,
+                colors,
+                Message::CanvasOverlayOpacity,
+                Some(Message::CanvasDragEnd),
+            ))
+            .width(170),
+        );
+    }
+    layer_row = layer_row.push(Space::new().width(Length::Fill)).push(
+        checkbox(s.audio_brightness)
+            .label("Brightness follows the music")
+            .on_toggle(Message::CanvasAudioBrightness),
+    );
+
     // ── device chips: toggle each device's canvas participation. Each chip
     // carries the same identifying color as the device's border on the canvas ──
     let mut chips = row![].spacing(8);
@@ -2203,6 +2297,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             effect_row,
             sliders,
             palette_row,
+            layer_row,
             hairline_divider(colors),
             row![card_label("DEVICES", colors), chips]
                 .spacing(14)

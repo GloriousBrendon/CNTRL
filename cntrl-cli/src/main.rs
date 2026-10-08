@@ -259,7 +259,7 @@ fn run_canvas(
 
     if list {
         println!("canvas effects:");
-        for kind in EffectKind::all() {
+        for kind in EffectKind::ALL {
             println!("  {:<15} {}", kind.slug(), kind.label());
         }
         return Ok(());

@@ -42,6 +42,8 @@ pub struct StreamStats {
     /// last second ("keyboard 60/s 7.0/9.1 ms · strips 45/s 19.4/23.0 ms").
     pub timing: String,
     pub last_error: Option<String>,
+    /// The live data the last frame was rendered with (previews mirror it).
+    pub input: canvas_effects::EffectInput,
 }
 
 pub struct StreamHandle {
@@ -78,6 +80,8 @@ impl StreamHandle {
             backends: st.backends,
             timing: st.timing,
             last_error: st.last_error,
+            bands: st.input.audio.bands.to_vec(),
+            level: st.input.audio.level,
         }
     }
 
@@ -281,8 +285,8 @@ impl<P: Send + 'static> Backend<P> {
 }
 
 type KeyboardFrame = [[u8; 3]; crate::mchose_direct::LIVE_FRAME_SLOTS];
-/// (D_LED1 wire colors, D_LED2 wire colors, 12V header color).
-type IteFrame = (Vec<[u8; 3]>, Vec<[u8; 3]>, Option<[u8; 3]>);
+/// (D_LED1 wire colors, D_LED2 wire colors, single-color zones as (zone, color)).
+type IteFrame = (Vec<[u8; 3]>, Vec<[u8; 3]>, Vec<(u8, [u8; 3])>);
 
 fn worker(
     stop: Arc<AtomicBool>,
@@ -305,7 +309,7 @@ fn worker(
         Duration::ZERO,
         crate::ite_rgb::IteDirect::open,
         |s| s.path().to_string(),
-        |s, (dled1, dled2, rgb12v)| s.write_strips(dled1, dled2, *rgb12v),
+        |s, (dled1, dled2, zones)| s.write_strips(dled1, dled2, zones),
         Some(("ite_rgb", crate::ite_rgb::apply_profile)),
     );
     let mut gpu = Backend::<[u8; 3]>::spawn(
@@ -324,6 +328,9 @@ fn worker(
         |s, per_dimm| s.write_colors(per_dimm),
         Some(("corsair_ram", crate::corsair_ram::apply_profile)),
     );
+    let mut audio: Option<crate::audio::AudioCapture> = None;
+    let mut audio_retry_at = Instant::now();
+    let board_zones = canvas::board_zones();
     // LED slot per layout key (constant; computed once).
     let kb_slots = crate::mchose_direct::layout_led_indices();
     let mut frames: u64 = 0;
@@ -338,9 +345,24 @@ fn worker(
         };
         let identify = identify.as_deref();
         let s = &layout.settings;
-        let params = s.params();
+        // Capture sound only while something reacts to it.
+        if !s.needs_audio() {
+            audio = None;
+        } else if audio.is_none() && Instant::now() >= audio_retry_at {
+            match crate::audio::AudioCapture::start() {
+                Ok(capture) => audio = Some(capture),
+                Err(e) => {
+                    audio_retry_at = Instant::now() + RETRY_AFTER;
+                    stats.lock().expect("stream stats").last_error = Some(e);
+                }
+            }
+        }
+        let input = canvas_effects::EffectInput {
+            audio: audio.as_ref().map(|a| a.levels()).unwrap_or_default(),
+        };
         let t = t0.elapsed().as_secs_f32();
-        canvas_effects::render(s.effect, &mut frame, t, &params);
+        s.render_into(&mut frame, t, &input);
+        stats.lock().expect("stream stats").input = input;
 
         // ── Keyboard: per-key live frame (0xDD) ──
         if let Some(colors) =
@@ -356,13 +378,19 @@ fn worker(
         }
 
         // ── ITE ARGB headers: each daisy chain assembled from its placed
-        // segments in chain order; the 12V RGB header rides along as a single
-        // averaged color ──
+        // segments in chain order; the 12V RGB header and enabled board zones
+        // ride along as one averaged color each ──
         let dled1 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED1, s.brightness, identify);
         let dled2 = assemble_chain(&frame, &layout, canvas::CHAIN_DLED2, s.brightness, identify);
-        let rgb12v = average_if_enabled(&frame, &layout, canvas::DEV_RGB12V, s.brightness, identify);
-        if dled1.is_some() || dled2.is_some() || rgb12v.is_some() {
-            ite.offer((dled1.unwrap_or_default(), dled2.unwrap_or_default(), rgb12v));
+        let zones: Vec<(u8, [u8; 3])> = [(canvas::DEV_RGB12V.to_string(), crate::ite_rgb::rgb12v_zone())]
+            .into_iter()
+            .chain(board_zones.iter().cloned())
+            .filter_map(|(id, zone)| {
+                Some((zone, average_if_enabled(&frame, &layout, &id, s.brightness, identify)?))
+            })
+            .collect();
+        if dled1.is_some() || dled2.is_some() || !zones.is_empty() {
+            ite.offer((dled1.unwrap_or_default(), dled2.unwrap_or_default(), zones));
         }
 
         // ── GPU: averaged zone color (change-detected in the session) ──
@@ -500,8 +528,7 @@ pub fn push_keyboard_snapshot(layout: &CanvasLayout, t: f32) -> Result<[u8; 3], 
     let spec = layout.spec(canvas::DEV_KEYBOARD).expect("keyboard spec");
     let s = &layout.settings;
     let mut frame = Frame::canvas_sized();
-    let params = s.params();
-    canvas_effects::render(s.effect, &mut frame, t, &params);
+    s.render_into(&mut frame, t, &canvas_effects::EffectInput::default());
     let avg = canvas::average_device_color(&frame, &spec, placed, s.brightness);
     // Fast protocol client first; legacy replay pipeline as fallback.
     match crate::mchose_direct::Ace68Direct::open()

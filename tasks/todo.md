@@ -668,9 +668,9 @@ latching them every frame strobes the board. Add them as single-colour canvas
 devices, written only when their colour changes, like the 12V header.
 
 **Acceptance criteria:**
-- [ ] Each onboard zone can be placed and enabled on the canvas
+- [x] Each onboard zone can be placed and enabled on the canvas
 - [ ] No strobing at any fps
-- [ ] Disabled zones are never written by the stream
+- [x] Disabled zones are never written by the stream
 
 **Verification:**
 - [ ] Manual: a colour-cycling effect for 10 minutes, watch the board zones
@@ -678,6 +678,12 @@ devices, written only when their colour changes, like the 12V header.
 **Dependencies:** Task 17
 **Files likely touched:** `cntrl-core/src/ite_rgb.rs`, `cntrl-core/src/canvas.rs`, `cntrl-core/src/canvas_stream.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** done in code. The canvas offers every ITE zone that is not an ARGB header
+or the 12V header (zones 0, 1, 5, 6, 7) as "Board zone N". They start disabled, because I cannot
+tell from here which ones your board wires up; enable one, start the stream and press Identify.
+Each is written only when its colour changes, the same way the 12V header already is.
+Not run on hardware: no zone was enabled.
 
 ## Task 27: Effect library, batch 1 (everyday)
 
@@ -732,16 +738,21 @@ over a Gradient.
 
 **Acceptance criteria:**
 - [ ] The layout holds an ordered list of layers; one layer behaves as today
-- [ ] Blend modes have a unit test on fixed pixels
-- [ ] Old layout files load as a single layer
+- [x] Blend modes have a unit test on fixed pixels
+- [x] Old layout files load as a single layer
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core canvas` passes
+- [x] `cargo test -p cntrl-core canvas` passes
 - [ ] Manual: two layers on hardware
 
 **Dependencies:** Task 22, Task 23
 **Files likely touched:** `cntrl-core/src/canvas.rs`, `cntrl-core/src/canvas_effects.rs`, `cntrl-core/src/canvas_stream.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** one layer on top of the main effect, with Add / Screen / Multiply /
+Normal and an opacity slider. Smaller than planned: one overlay, not a list, and the overlay
+uses that effect's saved tuning (select it as the main effect once to tune it). Open: the
+manual check; a second overlay if one is not enough.
 
 ## Task 30: Effect inputs (live data into effects)
 
@@ -751,15 +762,17 @@ optional screen frame). The preview in the panel gets the same input from the
 daemon, so it still matches the hardware.
 
 **Acceptance criteria:**
-- [ ] `render` takes `EffectInput`; existing effects ignore the new fields and their tests still pass
-- [ ] The daemon's status reply can carry the current input for the preview
+- [x] `render` takes `EffectInput`; existing effects ignore the new fields and their tests still pass
+- [x] The daemon's status reply can carry the current input for the preview
 
 **Verification:**
-- [ ] `cargo test -p cntrl-core` passes
+- [x] `cargo test -p cntrl-core` passes
 
 **Dependencies:** Task 23
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`, `cntrl-core/src/canvas_stream.rs`, `cntrl-core/src/ipc.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** `EffectInput` carries audio levels today; the status reply carries them to the panel preview.
 
 ## Task 31: Audio capture to frequency bands
 
@@ -769,8 +782,8 @@ an FFT crate) behind a cargo feature, so the project still builds without them.
 Capture runs only while an audio effect is active.
 
 **Acceptance criteria:**
-- [ ] Test: a synthetic 1 kHz sine lands in the right band
-- [ ] With no audio server the effect shows silence, and the stream keeps running
+- [x] Test: a synthetic 1 kHz sine lands in the right band
+- [x] With no audio server the effect shows silence, and the stream keeps running
 - [ ] Building without the feature works
 
 **Verification:**
@@ -781,6 +794,13 @@ Capture runs only while an audio effect is active.
 **Files likely touched:** `cntrl-core/Cargo.toml`, `cntrl-core/src/audio.rs`, `cntrl-cli/src/main.rs`
 **Estimated scope:** M
 
+**Status (2026-10-08):** done without new dependencies: the stream starts `parec` (part of
+pipewire-pulse) on the default output's monitor and analyses its PCM (own 1024-point FFT,
+16 bands, auto gain). So there is no cargo feature and no `cntrl audio-test` command. Capture
+runs only while an audio effect, an audio layer or "brightness follows the music" is active;
+checked that `parec` starts with the Spectrum Bars stream and is gone after it stops.
+Not checked with music playing.
+
 ## Task 32: Audio effects
 
 **Description:** Spectrum Bars, Beat Pulse, Audio Wave, and "audio drives
@@ -788,7 +808,7 @@ brightness" as a modifier on any layer.
 
 **Acceptance criteria:**
 - [ ] Three effects and the modifier, with sensitivity and smoothing parameters
-- [ ] Deterministic for a fixed `EffectInput` (unit test)
+- [x] Deterministic for a fixed `EffectInput` (unit test)
 
 **Verification:**
 - [ ] Manual: music playing, all devices react together with no visible lag
@@ -796,6 +816,10 @@ brightness" as a modifier on any layer.
 **Dependencies:** Task 31, Task 29
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** Spectrum Bars, Audio Wave, Beat Pulse, and a "Brightness follows the
+music" box that works with any effect. No sensitivity slider: gain is automatic. The preview
+mirrors the levels the stream is using. Open: the manual check with music.
 
 ## Task 33: Screen capture to a canvas frame
 
@@ -805,7 +829,7 @@ dependencies (`ashpd`, PipeWire video) behind a cargo feature. Starts with a
 spike: confirm the portal works on your compositor from a user service.
 
 **Acceptance criteria:**
-- [ ] Spike result recorded: portal works from the daemon, or what blocks it
+- [x] Spike result recorded: portal works from the daemon, or what blocks it
 - [ ] Capture delivers at least 30 frames per second downscaled, under 5% of one core
 - [ ] Permission is asked once, not on every start
 
@@ -815,6 +839,12 @@ spike: confirm the portal works on your compositor from a user service.
 **Dependencies:** Task 30
 **Files likely touched:** `cntrl-core/Cargo.toml`, `cntrl-core/src/screen.rs`, `cntrl-cli/src/main.rs`
 **Estimated scope:** M
+
+**Spike result (2026-10-08): the simple route fails.** Taking screenshots with `grim` (the tool
+Hyprland ships) costs 114 ms and a full CPU core per frame for one monitor, so about 9 fps at
+100% of a core. The target was 30 fps under 5%. The working route is the screen-capture
+portal with a PipeWire video stream, which needs two new crates (`ashpd`, `pipewire`) and
+their system build dependencies. Not started; needs your go-ahead on the dependencies.
 
 ## Task 34: Screen Ambient effect
 

@@ -34,6 +34,10 @@ pub enum EffectKind {
     Scanner,
     RadarSweep,
     BouncingBalls,
+    // Audio-reactive
+    SpectrumBars,
+    AudioWave,
+    BeatPulse,
 }
 
 const WHITE: [u8; 3] = [255, 255, 255];
@@ -66,7 +70,7 @@ const fn meta(slug: &'static str, label: &'static str, colors: usize) -> Meta {
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 23] = [
+    pub const ALL: [EffectKind; 26] = [
         EffectKind::Solid,
         EffectKind::Gradient,
         EffectKind::RadialGradient,
@@ -90,10 +94,15 @@ impl EffectKind {
         EffectKind::Scanner,
         EffectKind::RadarSweep,
         EffectKind::BouncingBalls,
+        EffectKind::SpectrumBars,
+        EffectKind::AudioWave,
+        EffectKind::BeatPulse,
     ];
 
-    pub fn all() -> [EffectKind; 23] {
-        Self::ALL
+    /// Reacts to system audio (the stream captures it only while one is active).
+    pub fn uses_audio(self) -> bool {
+        use EffectKind::*;
+        matches!(self, SpectrumBars | AudioWave | BeatPulse)
     }
 
     fn meta(self) -> Meta {
@@ -122,6 +131,9 @@ impl EffectKind {
             Scanner => Meta { angle: true, ..meta("scanner", "Scanner", 1) },
             RadarSweep => meta("radar", "Radar Sweep", 1),
             BouncingBalls => meta("balls", "Bouncing Balls", 3),
+            SpectrumBars => Meta { speed: false, scale: false, ..meta("bars", "Spectrum Bars", 2) },
+            AudioWave => Meta { speed: false, scale: false, ..meta("audio-wave", "Audio Wave", 2) },
+            BeatPulse => Meta { speed: false, ..meta("beat", "Beat Pulse", 1) },
         }
     }
 
@@ -157,6 +169,12 @@ impl EffectKind {
     pub fn from_slug(s: &str) -> Option<Self> {
         let t = s.trim().to_ascii_lowercase();
         Self::ALL.into_iter().find(|e| e.slug() == t)
+    }
+}
+
+impl std::fmt::Display for EffectKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }
 
@@ -214,10 +232,20 @@ impl Default for EffectParams {
     }
 }
 
+/// Live data an effect may react to. Everything defaults to "nothing there"
+/// (silence), so effects that ignore it stay pure functions of time.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EffectInput {
+    pub audio: crate::audio::AudioLevels,
+}
+
 /// Render one frame of `kind` at time `t` (seconds since stream start).
-pub fn render(kind: EffectKind, frame: &mut Frame, t: f32, params: &EffectParams) {
+pub fn render(kind: EffectKind, frame: &mut Frame, t: f32, params: &EffectParams, input: &EffectInput) {
     use EffectKind::*;
     match kind {
+        SpectrumBars => spectrum_bars(frame, params, input),
+        AudioWave => audio_wave(frame, params, input),
+        BeatPulse => beat_pulse(frame, params, input),
         RainbowWave => rainbow_wave(frame, t, params),
         Plasma => plasma(frame, t, params),
         Ripple => ripple(frame, t, params),
@@ -459,6 +487,54 @@ fn rain(frame: &mut Frame, t: f32, p: &EffectParams, glyphs: bool) {
         }
         // The leading edge burns toward white.
         scale_rgb(lerp_rgb(p.color(0), WHITE, (1.0 - behind / 0.03).clamp(0.0, 1.0) * 0.7), glow)
+    })
+}
+
+// ── audio-reactive ───────────────────────────────────────────────────
+
+/// Band level under a horizontal position, blended between neighbours so
+/// bars don't step on a 160-pixel-wide canvas.
+fn band_at(input: &EffectInput, nx: f32) -> f32 {
+    let bands = &input.audio.bands;
+    let pos = (nx * bands.len() as f32 - 0.5).clamp(0.0, bands.len() as f32 - 1.0);
+    let i = pos as usize;
+    let next = bands[(i + 1).min(bands.len() - 1)];
+    bands[i] + (next - bands[i]) * pos.fract()
+}
+
+/// Classic analyser: bass on the left, bars rising from the bottom.
+fn spectrum_bars(frame: &mut Frame, p: &EffectParams, input: &EffectInput) {
+    fill(frame, |nx, ny| {
+        let height = 1.0 - ny;
+        let level = band_at(input, nx);
+        if height > level {
+            return [0, 0, 0];
+        }
+        lerp_rgb(p.color(0), p.color(1), height)
+    })
+}
+
+/// The spectrum mirrored around the middle line, like a waveform.
+fn audio_wave(frame: &mut Frame, p: &EffectParams, input: &EffectInput) {
+    fill(frame, |nx, ny| {
+        let reach = band_at(input, nx) * 0.5;
+        let off = (ny - 0.5).abs();
+        if off >= reach {
+            return [0, 0, 0];
+        }
+        lerp_rgb(p.color(0), p.color(1), off / 0.5)
+    })
+}
+
+/// A glow at the center that swells with the bass.
+fn beat_pulse(frame: &mut Frame, p: &EffectParams, input: &EffectInput) {
+    let bands = &input.audio.bands;
+    let bass = bands[..4].iter().sum::<f32>() / 4.0;
+    let radius = (0.12 + bass * 0.75) * p.scale;
+    fill(frame, |nx, ny| {
+        let (dx, dy) = centered(nx, ny);
+        let gap = (dx * dx + dy * dy).sqrt() / radius;
+        scale_rgb(p.color(0), (-gap * gap).exp() * (0.15 + 0.85 * bass))
     })
 }
 
@@ -710,6 +786,31 @@ mod tests {
     use super::*;
     use crate::canvas::Frame;
 
+    /// Music playing: a falling spectrum, loud bass.
+    fn loud() -> EffectInput {
+        let mut input = EffectInput::default();
+        input.audio.bands = std::array::from_fn(|i| 1.0 - i as f32 / 20.0);
+        input.audio.level = 0.6;
+        input
+    }
+
+    #[test]
+    fn audio_effects_are_dark_in_silence_and_follow_the_bands() {
+        let params = EffectParams::default();
+        for kind in EffectKind::ALL.into_iter().filter(|k| k.uses_audio()) {
+            let mut f = Frame::new(64, 36);
+            render(kind, &mut f, 1.0, &params, &EffectInput::default());
+            assert!(f.px.iter().all(|p| p.iter().all(|&c| c < 40)), "{kind:?} lit in silence");
+        }
+        // Bars: with only the lowest band up, the left edge is lit and the right is not.
+        let mut input = EffectInput::default();
+        input.audio.bands[0] = 1.0;
+        let mut f = Frame::new(64, 36);
+        render(EffectKind::SpectrumBars, &mut f, 0.0, &params, &input);
+        assert_ne!(f.get(1, 30), [0, 0, 0]);
+        assert_eq!(f.get(60, 30), [0, 0, 0]);
+    }
+
     #[test]
     fn hsv_primaries() {
         assert_eq!(hsv_to_rgb(0.0, 1.0, 1.0), [255, 0, 0]);
@@ -721,11 +822,11 @@ mod tests {
     #[test]
     fn effects_are_deterministic() {
         let params = EffectParams::default();
-        for kind in EffectKind::all() {
+        for kind in EffectKind::ALL {
             let mut a = Frame::new(32, 18);
             let mut b = Frame::new(32, 18);
-            render(kind, &mut a, 1.25, &params);
-            render(kind, &mut b, 1.25, &params);
+            render(kind, &mut a, 1.25, &params, &loud());
+            render(kind, &mut b, 1.25, &params, &loud());
             assert_eq!(a.px, b.px, "{kind:?} not deterministic");
         }
     }
@@ -733,13 +834,15 @@ mod tests {
     #[test]
     fn effects_animate_over_time() {
         let params = EffectParams::default();
-        for kind in EffectKind::all() {
+        for kind in EffectKind::ALL {
             let mut a = Frame::new(32, 18);
             let mut b = Frame::new(32, 18);
-            render(kind, &mut a, 0.0, &params);
-            render(kind, &mut b, 1.0, &params);
-            if kind == EffectKind::Solid {
-                assert_eq!(a.px, b.px, "Solid must not animate");
+            render(kind, &mut a, 0.0, &params, &loud());
+            render(kind, &mut b, 1.0, &params, &loud());
+            // Solid has nothing to animate; audio effects follow the sound,
+            // which this test holds constant.
+            if kind == EffectKind::Solid || kind.uses_audio() {
+                assert_eq!(a.px, b.px, "{kind:?} must not depend on time");
                 continue;
             }
             assert_ne!(a.px, b.px, "{kind:?} static over time");
@@ -770,7 +873,7 @@ mod tests {
             // Over a few seconds no effect may be black everywhere.
             let lit = (0..40).any(|i| {
                 let mut f = Frame::new(64, 36);
-                render(kind, &mut f, i as f32 * 0.25, &params);
+                render(kind, &mut f, i as f32 * 0.25, &params, &loud());
                 f.px.iter().any(|p| p.iter().any(|&c| c > 60))
             });
             assert!(lit, "{kind:?} never lights up");
@@ -788,7 +891,7 @@ mod tests {
             let mut f = Frame::new(320, 180);
             let start = std::time::Instant::now();
             for i in 0..10 {
-                render(kind, &mut f, i as f32, &params);
+                render(kind, &mut f, i as f32, &params, &loud());
             }
             let per_frame = start.elapsed() / 10;
             eprintln!("{kind:?}: {per_frame:?}");
@@ -810,7 +913,7 @@ mod tests {
                 palette: (0..6).map(|c| kind.default_color(c)).collect(),
                 ..EffectParams::default()
             };
-            render(kind, &mut f, 3.0, &params);
+            render(kind, &mut f, 3.0, &params, &loud());
             let (ox, oy) = ((i % cols) * (w + 4), (i / cols) * (h + 4));
             for y in 0..h {
                 for x in 0..w {
@@ -825,7 +928,7 @@ mod tests {
 
     #[test]
     fn slug_roundtrip() {
-        for kind in EffectKind::all() {
+        for kind in EffectKind::ALL {
             assert_eq!(EffectKind::from_slug(kind.slug()), Some(kind));
         }
         assert_eq!(EffectKind::from_slug("nope"), None);

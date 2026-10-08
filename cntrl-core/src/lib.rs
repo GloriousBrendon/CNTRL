@@ -1,6 +1,7 @@
 //! CNTRL core: profile model, persistence, HID entry points, and lighting protocol.
 //! No UI dependencies.
 
+pub mod audio;
 pub mod canvas;
 pub mod canvas_effects;
 pub mod canvas_stream;
