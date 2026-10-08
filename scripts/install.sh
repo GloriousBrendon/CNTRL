@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/install.sh              # build + install binary + udev + desktop
-#   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also enable boot RGB probe + resume hook
+#   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also install the daemon, boot/login restore + resume hook
 #   INSTALL_IT87=1 ./scripts/install.sh     # also load the it87 fan driver at boot (experimental)
 #   PREFIX=/usr ./scripts/install.sh  # install to /usr/bin instead
 #
@@ -20,6 +20,20 @@ cargo build --release --manifest-path "$ROOT/Cargo.toml" -p cntrl-cli
 
 echo "==> Installing binary: $BINDIR/cntrl"
 sudo install -Dm755 "$ROOT/target/release/cntrl" "$BINDIR/cntrl"
+
+# An older copy earlier on PATH would keep running old code from your shell
+# while the services run the new one. Point it at the installed binary.
+STALE="$HOME/.local/bin/cntrl"
+if [[ -f "$STALE" && ! -L "$STALE" && "$STALE" != "$BINDIR/cntrl" ]]; then
+    echo "==> Replacing stale copy $STALE with a link to $BINDIR/cntrl"
+    ln -sf "$BINDIR/cntrl" "$STALE"
+fi
+
+# A running daemon keeps executing the old binary until restarted.
+systemctl --user try-restart cntrl-daemon.service 2>/dev/null || true
+
+# Units ship with /usr/local/bin; rewrite to wherever the binary really went.
+unit() { sed "s|/usr/local/bin/cntrl|$BINDIR/cntrl|" "$ROOT/packaging/systemd/$1"; }
 
 echo "==> Installing udev rules..."
 sudo install -Dm644 \
@@ -38,20 +52,26 @@ sudo install -Dm644 \
 
 if [[ "$INSTALL_SYSTEMD" == "1" ]]; then
     echo "==> Installing systemd RGB probe service..."
-    sudo install -Dm644 \
-        "$ROOT/packaging/systemd/cntrl-rgb-probe.service" \
-        /etc/systemd/system/cntrl-rgb-probe.service
+    unit cntrl-rgb-probe.service | sudo tee /etc/systemd/system/cntrl-rgb-probe.service >/dev/null
     sudo systemctl daemon-reload
     sudo systemctl enable --now cntrl-rgb-probe.service
     echo "    systemd service enabled."
 
     echo "==> Installing resume hook (re-applies RGB after suspend/hibernate)..."
-    sudo install -Dm644 \
-        "$ROOT/packaging/systemd/cntrl-resume@.service" \
-        /etc/systemd/system/cntrl-resume@.service
+    unit "cntrl-resume@.service" | sudo tee "/etc/systemd/system/cntrl-resume@.service" >/dev/null
     sudo systemctl daemon-reload
     sudo systemctl enable "cntrl-resume@${SUDO_USER:-$USER}.service"
     echo "    resume hook enabled for ${SUDO_USER:-$USER}."
+
+    echo "==> Installing user services (daemon + restore lighting on login)..."
+    mkdir -p "$HOME/.config/systemd/user"
+    unit cntrl-daemon.service > "$HOME/.config/systemd/user/cntrl-daemon.service"
+    unit cntrl-restore.service > "$HOME/.config/systemd/user/cntrl-restore.service"
+    systemctl --user daemon-reload
+    systemctl --user enable cntrl-restore.service
+    systemctl --user enable cntrl-daemon.service
+    systemctl --user restart cntrl-daemon.service
+    echo "    daemon restarted on the new binary."
 fi
 
 if [[ "$INSTALL_IT87" == "1" ]]; then
@@ -72,6 +92,6 @@ echo "  Start the popup:     cntrl popup"
 echo "  Re-probe RGB devices: cntrl probe-rgb --force"
 if [[ "$INSTALL_SYSTEMD" != "1" ]]; then
     echo ""
-    echo "  To enable the boot RGB probe + suspend/hibernate resume hook:"
+    echo "  To install the daemon, login restore + suspend/hibernate resume hook:"
     echo "    INSTALL_SYSTEMD=1 $0"
 fi

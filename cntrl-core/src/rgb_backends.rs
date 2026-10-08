@@ -94,6 +94,22 @@ impl BackendRegistry {
         Self { enabled_ids }
     }
 
+    /// Run `f` with the PC fan-out restricted to `ids`, then put the previous
+    /// selection back. The list travels through a process-wide env var, so
+    /// leaving it set would silently narrow every later apply in this process
+    /// (theme sync after a keyboard-only Apply skipped the PC devices).
+    pub fn with_enabled<T>(ids: &str, f: impl FnOnce() -> T) -> T {
+        const KEY: &str = "CNTRL_PC_RGB_BACKENDS";
+        let prev = std::env::var_os(KEY);
+        unsafe { std::env::set_var(KEY, ids) };
+        let out = f();
+        match prev {
+            Some(v) => unsafe { std::env::set_var(KEY, v) },
+            None => unsafe { std::env::remove_var(KEY) },
+        }
+        out
+    }
+
     pub fn run(&self, doc: &ProfileDocument) -> PcRgbApplySummary {
         let mut reports = Vec::new();
         for id in &self.enabled_ids {
@@ -233,3 +249,16 @@ impl PcRgbBackend for GpuRgbBackend {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_enabled_restricts_then_restores() {
+        let before = BackendRegistry::from_env().enabled_ids;
+        let during = BackendRegistry::with_enabled("gpu_rgb", || BackendRegistry::from_env().enabled_ids);
+        assert_eq!(during, vec!["gpu_rgb".to_string()]);
+        assert_eq!(BackendRegistry::from_env().enabled_ids, before);
+    }
+}

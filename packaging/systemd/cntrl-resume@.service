@@ -6,11 +6,8 @@
 # dark. Sleep targets live in the system manager (there is no user-level
 # sleep.target), so this hook has to be a system unit instantiated for your user.
 #
-# Install (as root), replacing `USER` with your username:
-#   sudo install -Dm644 packaging/systemd/cntrl-resume@.service \
-#       /etc/systemd/system/cntrl-resume@.service
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable cntrl-resume@USER.service
+# Installed by `INSTALL_SYSTEMD=1 ./scripts/install.sh` (which also points
+# ExecStart at the install prefix) and enabled as cntrl-resume@<you>.service.
 #
 # User=%i runs it as that user with their supplementary groups, so the `users`
 # group access granted by the udev rules applies (see packaging/udev/).

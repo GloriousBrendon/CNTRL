@@ -138,16 +138,15 @@ pub fn restore_all() -> Result<String, String> {
             )
         } else {
             // Restrict the PC fan-out to just this backend.
-            unsafe {
-                std::env::set_var("CNTRL_PC_RGB_BACKENDS", backend);
-            }
-            push_to_devices(
-                &doc,
-                ApplyOptions {
-                    keyboard: false,
-                    pc_rgb: true,
-                },
-            )
+            crate::rgb_backends::BackendRegistry::with_enabled(backend, || {
+                push_to_devices(
+                    &doc,
+                    ApplyOptions {
+                        keyboard: false,
+                        pc_rgb: true,
+                    },
+                )
+            })
         };
         match result {
             Ok(()) => ok += 1,

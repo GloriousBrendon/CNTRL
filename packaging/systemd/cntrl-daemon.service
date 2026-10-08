@@ -1,0 +1,18 @@
+# CNTRL — background daemon (systemd USER service): theme sync, fan engine,
+# and the socket the panel/CLI apply through. Installed by scripts/install.sh.
+
+[Unit]
+Description=CNTRL keyboard lighting daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStartPre=-/bin/rm -f %t/cntrl/daemon.sock
+ExecStart=/usr/local/bin/cntrl daemon
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=cntrl
+
+[Install]
+WantedBy=graphical-session.target

@@ -263,21 +263,20 @@ because that combination reads fine and silently ignores speed writes.
 say so in the README and Fans tab and close the task.
 
 **Acceptance criteria:**
-- [ ] After reboot, `cntrl fans list` shows the it87 channels with no manual step
+- [x] After reboot, `cntrl fans list` shows the it87 channels with no manual step
 - [x] The channels are writable without root (the udev rule already covers `it87`)
 - [x] The install step is opt-in or clearly labelled experimental
 - [x] `install.sh` also installs `packaging/udev/99-cntrl-hwmon.rules` (today it does not; the rule on this machine was put there by hand)
 
 **Verification:**
-- [ ] Manual: reboot, `cntrl fans list`, set a curve on one case fan in the Fans tab, RPM follows
+- [x] Manual: reboot, `cntrl fans list`, set a curve on one case fan in the Fans tab, RPM follows
 
 **Dependencies:** Task 9
 **Files likely touched:** `scripts/install.sh`, `README.md`
 **Estimated scope:** S
 
 **Status (2026-10-08):** code and README done (`INSTALL_IT87=1 ./scripts/install.sh`,
-driver warning in `cntrl fans list`). Open: you run the install with
-`INSTALL_IT87=1` and reboot once to confirm. The warning for the built-in driver
+driver warning in `cntrl fans list`). Confirmed after a reboot: six channels Controllable, out-of-tree driver loaded, no warning. The warning for the built-in driver
 was only checked in the "no warning" direction (the out-of-tree driver is loaded).
 
 ## Task 11: Fans tab reads once per poll; numeric hwmon sort; delete dead code
@@ -320,16 +319,20 @@ the save logic and saves before applying.
 
 **Acceptance criteria:**
 - [ ] Apply with only the keyboard ticked, then "Apply theme now": RAM, GPU and motherboard all change colour and are saved
-- [ ] The panel calls `device_state::remember_applied` after a successful apply; its own copy is deleted
-- [ ] A failed apply is not saved
+- [x] The panel calls `device_state::remember_applied` after a successful apply; its own copy is deleted
+- [x] A failed apply is not saved
 
 **Verification:**
-- [ ] Build succeeds
+- [x] Build succeeds
 - [ ] Manual: the sequence above, then check `~/.config/cntrl/device_state.json` has the theme colour for all four entries
 
 **Dependencies:** None
 **Files likely touched:** `cntrl-iced/src/app.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** fixed in shared code (`BackendRegistry::with_enabled` sets the
+list, runs, and puts the old value back; unit-tested). `cntrl restore` uses it too.
+Open: the manual check in the panel (first and last boxes).
 
 ## Task 13: One install path; resume unit follows `PREFIX`
 
@@ -338,9 +341,9 @@ wrong: both installed copies match the current build). Two copies in two
 places can drift, and the resume unit hard-codes `/usr/local/bin`.
 
 **Acceptance criteria:**
-- [ ] Login unit and resume unit run the same binary path
+- [x] Login unit and resume unit run the same binary path
 - [ ] `PREFIX=/usr ./scripts/install.sh` produces units that point at `/usr/bin/cntrl`
-- [ ] The second copy is removed or is a symlink
+- [x] The second copy is removed or is a symlink
 
 **Verification:**
 - [ ] Manual: `systemctl --user cat cntrl-restore.service` and `systemctl cat cntrl-resume@$USER.service` show the same path
@@ -351,6 +354,12 @@ places can drift, and the resume unit hard-codes `/usr/local/bin`.
 **Estimated scope:** S
 
 ---
+
+**Status (2026-10-08):** done in the repo; takes effect when you run
+`INSTALL_SYSTEMD=1 ./scripts/install.sh`. Found while doing it: `~/.local/bin/cntrl`
+is first on PATH and is the Aug 31 build, so every `cntrl ...` typed in a shell so
+far ran old code. The daemon unit was not in the repo; added as
+`packaging/systemd/cntrl-daemon.service`. `PREFIX=/usr` was not run.
 
 ## Phase 4: Canvas correctness
 

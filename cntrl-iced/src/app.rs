@@ -780,44 +780,19 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 async move {
                     tokio::task::spawn_blocking(move || {
                         use cntrl_core::ipc::{self, ApplyOptions};
+                        use cntrl_core::rgb_backends::BackendRegistry;
 
+                        let options = ApplyOptions {
+                            keyboard: targets.keyboard,
+                            pc_rgb: targets.any_pc(),
+                        };
                         // Restrict the PC fan-out to exactly the selected backends.
-                        unsafe {
-                            std::env::set_var("CNTRL_PC_RGB_BACKENDS", targets.pc_env_value());
-                        }
-
-                        let cfg = &doc.data.light.config;
-                        // Remember per-device state so `cntrl restore` brings it back on boot.
-                        let mut backends: Vec<String> = Vec::new();
-                        if targets.keyboard {
-                            backends.push("keyboard".into());
-                        }
-                        if targets.ite {
-                            backends.push("ite_rgb".into());
-                        }
-                        if targets.gpu {
-                            backends.push("gpu_rgb".into());
-                        }
-                        if targets.corsair {
-                            backends.push("corsair_ram".into());
-                        }
-                        cntrl_core::device_state::remember(
-                            &backends,
-                            &cfg.hex_color,
-                            cfg.effect,
-                            cfg.brightness,
-                            cfg.speed,
-                        );
-
-                        ipc::apply_local_with_options(
-                            &doc,
-                            slot,
-                            ApplyOptions {
-                                keyboard: targets.keyboard,
-                                pc_rgb: targets.any_pc(),
-                            },
-                        )
-                        .map_err(|e| e.to_string())
+                        BackendRegistry::with_enabled(&targets.pc_env_value(), || {
+                            ipc::apply_local_with_options(&doc, slot, options)?;
+                            // Only what really reached the devices is restored on boot.
+                            cntrl_core::device_state::remember_applied(&doc, options);
+                            Ok(())
+                        })
                     })
                     .await
                     .unwrap_or_else(|e| Err(format!("Join: {e}")))

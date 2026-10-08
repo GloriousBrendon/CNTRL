@@ -1,9 +1,7 @@
 # CNTRL — restore saved per-device RGB on login (systemd USER service).
 #
-# Install:
-#   install -Dm644 packaging/systemd/cntrl-restore.service \
-#       ~/.config/systemd/user/cntrl-restore.service
-#   systemctl --user enable --now cntrl-restore.service
+# Installed by `INSTALL_SYSTEMD=1 ./scripts/install.sh`, which also points
+# ExecStart at the install prefix.
 #
 # Runs as your user (so it has your hidraw/i2c group access) shortly after the
 # session starts, re-applying each device's last color/effect via `cntrl restore`.
@@ -16,7 +14,7 @@ After=graphical-session.target
 Type=oneshot
 # Give udev a moment to create the hidraw/i2c nodes after login.
 ExecStartPre=/usr/bin/sleep 3
-ExecStart=%h/.local/bin/cntrl restore
+ExecStart=/usr/local/bin/cntrl restore
 
 [Install]
 WantedBy=default.target

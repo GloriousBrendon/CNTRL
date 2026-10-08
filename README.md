@@ -189,16 +189,12 @@ different events:
 
 Sleep targets only exist in the *system* manager, so the resume hook cannot be a
 user unit — it is a template instantiated for your username, running as you (and
-so with the `users` group access the udev rules grant):
+so with the `users` group access the udev rules grant).
 
-```bash
-sudo install -Dm644 packaging/systemd/cntrl-resume@.service \
-    /etc/systemd/system/cntrl-resume@.service
-sudo systemctl daemon-reload
-sudo systemctl enable "cntrl-resume@$USER.service"
-```
-
-`INSTALL_SYSTEMD=1 ./scripts/install.sh` does this for you.
+`INSTALL_SYSTEMD=1 ./scripts/install.sh` installs and enables both, plus the
+daemon's user service, and points all of them at the one installed binary
+(`$PREFIX/bin/cntrl`). It also replaces an older `~/.local/bin/cntrl` with a link,
+so your shell and the services never run different versions.
 
 Note that `Off` is a state like any other: if the last thing you applied to a
 device was the Off effect, that is what boot and resume restore. Applying any

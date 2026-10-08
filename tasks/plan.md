@@ -136,14 +136,14 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 - [x] Task 7: Write-skip checks the hardware value
 - [x] Task 8: Restore writes PWM only in manual mode
 - [x] Task 9: it87 validation spike on the real board (you run it, sudo)
-- [ ] Task 10: Load it87 at boot (only if Task 9 passes)
+- [x] Task 10: Load it87 at boot (only if Task 9 passes)
 - [x] Task 11: Fans tab reads once per poll; numeric hwmon sort; delete dead code
 
 ### Checkpoint B: all fans controlled, or the limit is documented
 
 ### Phase 3: RGB apply/restore
-- [ ] Task 12: Panel Apply stops leaking the backend list
-- [ ] Task 13: One install path; resume unit follows `PREFIX`
+- [x] Task 12: Panel Apply stops leaking the backend list
+- [x] Task 13: One install path; resume unit follows `PREFIX`
 
 ### Phase 4: Canvas correctness
 - [ ] Task 14: Chain segments keep their own LED count
