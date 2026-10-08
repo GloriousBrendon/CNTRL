@@ -47,7 +47,8 @@ enum Commands {
         no_apply: bool,
     },
     /// Stream a canvas effect across ARGB devices using the saved layout
-    /// (arrange devices in the panel's Canvas tab). Runs until Ctrl-C.
+    /// (arrange devices in the panel's Canvas tab). With the daemon running the
+    /// stream lives there and keeps going after this command returns.
     Canvas {
         /// Effect: wave | plasma | ripple | comet | aurora (default: saved).
         #[arg(long)]
@@ -55,9 +56,12 @@ enum Commands {
         /// Frames per second (default: saved layout setting).
         #[arg(long)]
         fps: Option<u32>,
-        /// Stop after N seconds (default: run until Ctrl-C).
+        /// Stop after N seconds (default: keep running).
         #[arg(long)]
         seconds: Option<u64>,
+        /// Stop the daemon's running stream and exit.
+        #[arg(long)]
+        stop: bool,
         /// List available effects and exit.
         #[arg(long)]
         list: bool,
@@ -166,8 +170,9 @@ fn run() -> Result<(), String> {
             effect,
             fps,
             seconds,
+            stop,
             list,
-        } => run_canvas(effect.as_deref(), fps, seconds, list),
+        } => run_canvas(effect.as_deref(), fps, seconds, stop, list),
         Commands::Fans(args) => run_fans(args),
         Commands::TestLight {
             slot,
@@ -239,9 +244,18 @@ fn run_canvas(
     effect: Option<&str>,
     fps: Option<u32>,
     seconds: Option<u64>,
+    stop: bool,
     list: bool,
 ) -> Result<(), String> {
     use cntrl_core::canvas_effects::EffectKind;
+    use cntrl_core::ipc::{canvas_request, Request};
+
+    if stop {
+        return match canvas_request(&Request::CanvasStop)? {
+            Some(_) => Ok(println!("stream stopped.")),
+            None => Err("no daemon running — nothing to stop".to_string()),
+        };
+    }
 
     if list {
         println!("canvas effects:");
@@ -275,36 +289,52 @@ fn run_canvas(
         enabled.join(", "),
         cntrl_core::canvas::layout_path()?.display(),
     );
-    println!("Ctrl-C to stop.");
 
-    let handle = cntrl_core::canvas_stream::start(layout);
+    // The daemon owns the devices when it runs; stream here only without it.
+    let local = match canvas_request(&Request::CanvasStart {
+        layout: layout.clone(),
+    })? {
+        Some(_) if seconds.is_none() => {
+            println!("running in the daemon — stop with `cntrl canvas --stop`.");
+            return Ok(());
+        }
+        Some(_) => None,
+        None => {
+            println!("no daemon — streaming from this process. Ctrl-C to stop.");
+            Some(cntrl_core::canvas_stream::start(layout))
+        }
+    };
     let deadline = seconds.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
 
     // Report stats once a second until the deadline / Ctrl-C.
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        {
-            let stats = handle.stats.lock().map_err(|e| e.to_string())?;
-            let err = stats
-                .last_error
-                .as_deref()
-                .map(|e| format!(" · last error: {e}"))
-                .unwrap_or_default();
-            println!(
-                "  {:.0} fps · frame {} · {} · write {}{}",
-                stats.actual_fps, stats.frames, stats.backends, stats.timing, err
-            );
+        let st = match &local {
+            Some(handle) => handle.status(),
+            None => canvas_request(&Request::CanvasStatus)?.unwrap_or_default(),
+        };
+        let err = st
+            .last_error
+            .as_deref()
+            .map(|e| format!(" · last error: {e}"))
+            .unwrap_or_default();
+        println!(
+            "  {:.0} fps · frame {} · {} · write {}{}",
+            st.fps, st.frames, st.backends, st.timing, err
+        );
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            break;
         }
-        if let Some(d) = deadline {
-            if std::time::Instant::now() >= d {
-                break;
-            }
-        }
-        if !handle.is_running() {
-            return Err("stream thread exited unexpectedly".to_string());
+        if !st.running {
+            return Err("stream stopped unexpectedly".to_string());
         }
     }
-    handle.stop();
+    match local {
+        Some(handle) => handle.stop(),
+        None => {
+            canvas_request(&Request::CanvasStop)?;
+        }
+    }
     println!("stream stopped.");
     Ok(())
 }

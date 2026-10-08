@@ -120,6 +120,15 @@ pub(crate) fn doc_for(state: &LightState) -> crate::profile::ProfileDocument {
 
 /// Re-apply every saved device's lighting (used by `cntrl restore` on login).
 pub fn restore_all() -> Result<String, String> {
+    // A daemon-owned canvas stream is what should be on the devices. After
+    // resume they have lost power, so have it reopen them rather than paint
+    // static colors underneath it.
+    if let Ok(Some(status)) = crate::ipc::canvas_request(&crate::ipc::Request::CanvasStatus) {
+        if status.running {
+            crate::ipc::canvas_request(&crate::ipc::Request::CanvasRestart)?;
+            return Ok("canvas stream restarted".to_string());
+        }
+    }
     let states = load();
     if states.is_empty() {
         return Ok("no saved device state to restore".to_string());

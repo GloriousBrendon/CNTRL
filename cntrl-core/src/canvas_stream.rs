@@ -53,7 +53,34 @@ pub struct StreamHandle {
     join: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Streams alive in this process. With [`active`], lets static applies
+/// (theme sync, boot restore) stay out of a running stream's way.
+static LOCAL_STREAMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Is a canvas stream driving the devices — here or in the daemon?
+pub fn active() -> bool {
+    LOCAL_STREAMS.load(Ordering::SeqCst) > 0
+        || crate::ipc::canvas_request(&crate::ipc::Request::CanvasStatus)
+            .ok()
+            .flatten()
+            .is_some_and(|s| s.running)
+}
+
 impl StreamHandle {
+    /// Snapshot for IPC / status lines.
+    pub fn status(&self) -> crate::ipc::CanvasStatus {
+        let st = self.stats.lock().expect("stream stats").clone();
+        crate::ipc::CanvasStatus {
+            running: self.is_running(),
+            elapsed_secs: self.started.elapsed().as_secs_f32(),
+            frames: st.frames,
+            fps: st.actual_fps,
+            backends: st.backends,
+            timing: st.timing,
+            last_error: st.last_error,
+        }
+    }
+
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(j) = self.join.take() {
@@ -94,7 +121,11 @@ pub fn start(layout: CanvasLayout) -> StreamHandle {
     let t_stats = Arc::clone(&stats);
     let join = std::thread::Builder::new()
         .name("cntrl-canvas-stream".to_string())
-        .spawn(move || worker(t_stop, t_shared, t_stats, started))
+        .spawn(move || {
+            LOCAL_STREAMS.fetch_add(1, Ordering::SeqCst);
+            worker(t_stop, t_shared, t_stats, started);
+            LOCAL_STREAMS.fetch_sub(1, Ordering::SeqCst);
+        })
         .expect("spawn canvas stream thread");
 
     StreamHandle {

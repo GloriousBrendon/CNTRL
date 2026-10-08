@@ -30,6 +30,32 @@ pub enum Request {
         document: ProfileDocument,
         slot: u8,
     },
+    /// Start (or replace) the daemon-owned canvas stream with this layout.
+    CanvasStart { layout: crate::canvas::CanvasLayout },
+    /// Live-edit the running stream. Ignored when none is running.
+    CanvasUpdate {
+        layout: crate::canvas::CanvasLayout,
+        #[serde(default)]
+        identify: Option<String>,
+    },
+    CanvasStop,
+    /// Stop and start again with the same layout (devices lost power on resume).
+    CanvasRestart,
+    CanvasStatus,
+}
+
+/// State of the daemon's canvas stream; every `Canvas*` request returns it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CanvasStatus {
+    pub running: bool,
+    /// Seconds since the stream's effect clock started (previews sync to it).
+    pub elapsed_secs: f32,
+    pub frames: u64,
+    pub fps: f32,
+    pub backends: String,
+    pub timing: String,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +65,8 @@ pub struct Response {
     pub message: String,
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub canvas: Option<CanvasStatus>,
 }
 
 impl Response {
@@ -47,6 +75,7 @@ impl Response {
             ok: true,
             message: msg.into(),
             error: None,
+            canvas: None,
         }
     }
 
@@ -55,6 +84,7 @@ impl Response {
             ok: false,
             message: String::new(),
             error: Some(msg.into()),
+            canvas: None,
         }
     }
 }
@@ -229,10 +259,36 @@ pub fn push_to_devices(doc: &ProfileDocument, options: ApplyOptions) -> Result<(
     Ok(())
 }
 
+/// Send a `Canvas*` request. `Ok(None)` = no daemon is running (stream
+/// locally instead); `Err` = the daemon answered with an error or hung.
+pub fn canvas_request(req: &Request) -> Result<Option<CanvasStatus>, String> {
+    #[cfg(unix)]
+    {
+        if UnixStream::connect(socket_path()).is_err() {
+            return Ok(None);
+        }
+        let resp = send_request(req).map_err(|e| format!("daemon: {e}"))?;
+        if !resp.ok {
+            return Err(resp.error.unwrap_or(resp.message));
+        }
+        Ok(Some(resp.canvas.unwrap_or_default()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = req;
+        Ok(None)
+    }
+}
+
 #[cfg(unix)]
 pub fn send_request(req: &Request) -> std::io::Result<Response> {
     let path = socket_path();
     let mut stream = UnixStream::connect(&path)?;
+    // Canvas requests are made from UI threads; a hung daemon must not freeze
+    // them. Applies talk to slow hardware and get no limit.
+    if !matches!(req, Request::ApplyProfile { .. }) {
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+    }
     let line = serde_json::to_string(req).map_err(|e| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, e)
     })?;
@@ -245,4 +301,40 @@ pub fn send_request(req: &Request) -> std::io::Result<Response> {
     serde_json::from_str(resp_line.trim()).map_err(|e| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, e)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canvas_messages_round_trip_and_old_responses_still_parse() {
+        let req = Request::CanvasUpdate {
+            layout: crate::canvas::CanvasLayout::default(),
+            identify: Some("dled2.1".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains(r#""cmd":"canvas_update""#));
+        match serde_json::from_str(&json).unwrap() {
+            Request::CanvasUpdate { identify, layout } => {
+                assert_eq!(identify.as_deref(), Some("dled2.1"));
+                assert!(layout.device(crate::canvas::DEV_KEYBOARD).is_some());
+            }
+            other => panic!("wrong request: {other:?}"),
+        }
+        // Unit variants carry only the tag.
+        assert_eq!(serde_json::to_string(&Request::CanvasStop).unwrap(), r#"{"cmd":"canvas_stop"}"#);
+
+        // A response from a daemon that predates the canvas field.
+        let old: Response = serde_json::from_str(r#"{"ok":true,"message":"pong"}"#).unwrap();
+        assert!(old.canvas.is_none());
+        let mut resp = Response::ok_msg("");
+        resp.canvas = Some(CanvasStatus {
+            running: true,
+            fps: 60.0,
+            ..Default::default()
+        });
+        let back: Response = serde_json::from_str(&serde_json::to_string(&resp).unwrap()).unwrap();
+        assert!(back.canvas.unwrap().running);
+    }
 }

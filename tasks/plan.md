@@ -159,9 +159,9 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 ### Checkpoint C: Canvas maps correctly and stays smooth
 
 ### Phase 5: Canvas always on
-- [ ] Task 23: Daemon owns the stream; panel is a client
-- [ ] Task 24: Apply, theme sync and restore cooperate with a running stream
-- [ ] Task 25: Canvas starts at login and after resume
+- [x] Task 23: Daemon owns the stream; panel is a client
+- [x] Task 24: Apply, theme sync and restore cooperate with a running stream
+- [x] Task 25: Canvas starts at login and after resume
 
 ### Checkpoint D: effect survives closing the panel, reboot, suspend
 

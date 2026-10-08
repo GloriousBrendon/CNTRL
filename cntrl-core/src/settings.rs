@@ -17,6 +17,8 @@ pub struct Settings {
     pub theme_sync_keyboard: bool,
     /// Apply the theme color to PC RGB backends (ITE, etc.).
     pub theme_sync_pc: bool,
+    /// The daemon starts the canvas stream (saved layout) when it launches.
+    pub canvas_autostart: bool,
 }
 
 impl Default for Settings {
@@ -26,6 +28,7 @@ impl Default for Settings {
             theme_sync_slot: 0,
             theme_sync_keyboard: true,
             theme_sync_pc: false,
+            canvas_autostart: false,
         }
     }
 }

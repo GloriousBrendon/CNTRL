@@ -70,6 +70,9 @@ fn boot() -> (App, Task<Message>) {
     let profile = load_profile_slot(slot).unwrap_or_else(|_| profile::default_profile_document());
     let mut app = App::from_profile(profile, slot);
     app.select_canvas_color(0);
+    // Pick up a stream the daemon is already running (autostart, or started
+    // before this panel opened).
+    app.on_canvas_reply(cntrl_core::ipc::canvas_request(&cntrl_core::ipc::Request::CanvasStatus));
     app.theme_mtime = std::fs::metadata(theme::theme_file_path())
         .ok()
         .and_then(|m| m.modified().ok());
@@ -454,6 +457,13 @@ struct App {
     canvas_t0: std::time::Instant,
     /// Live hardware stream, when running.
     canvas_stream: Option<StreamHandle>,
+    /// The daemon is streaming (it owns the devices; this panel only edits).
+    canvas_remote: bool,
+    /// Effect time zero of the daemon's stream, for the preview.
+    canvas_remote_t0: std::time::Instant,
+    /// Layout/identify changed since the daemon last heard from us.
+    canvas_dirty: bool,
+    canvas_ticks: u32,
     /// Canvas tab status line (stream stats / errors / push results).
     canvas_status: String,
     /// Identify mode: the stream lights only the selected device.
@@ -532,6 +542,10 @@ impl App {
             canvas_preview,
             canvas_t0: std::time::Instant::now(),
             canvas_stream: None,
+            canvas_remote: false,
+            canvas_remote_t0: std::time::Instant::now(),
+            canvas_dirty: false,
+            canvas_ticks: 0,
             canvas_status: String::new(),
             canvas_identify: false,
             canvas_color_idx: 0,
@@ -564,6 +578,52 @@ impl App {
             .find(|a| a.channel_id == channel_id)
     }
 
+    fn streaming(&self) -> bool {
+        self.canvas_stream.is_some() || self.canvas_remote
+    }
+
+    /// Take in the daemon's answer to a `Canvas*` request.
+    fn on_canvas_reply(
+        &mut self,
+        reply: Result<Option<cntrl_core::ipc::CanvasStatus>, String>,
+    ) {
+        match reply {
+            Ok(Some(st)) if st.running => {
+                self.canvas_remote = true;
+                self.canvas_remote_t0 = std::time::Instant::now()
+                    - std::time::Duration::from_secs_f32(st.elapsed_secs.max(0.0));
+                self.canvas_status = stream_status_line(
+                    "Streaming (daemon)",
+                    st.fps,
+                    st.frames,
+                    &st.backends,
+                    &st.timing,
+                    st.last_error.as_deref(),
+                );
+            }
+            Ok(_) => {
+                if self.canvas_remote {
+                    self.canvas_status = "Stream stopped".into();
+                }
+                self.canvas_remote = false;
+            }
+            Err(e) => self.canvas_status = format!("Daemon: {e}"),
+        }
+    }
+
+    /// Stop whichever stream is running (an explicit Apply wins over it).
+    fn stop_canvas_stream(&mut self) {
+        self.canvas_identify = false;
+        if let Some(stream) = self.canvas_stream.take() {
+            stream.stop();
+            self.canvas_status = "Stream stopped".into();
+        }
+        if self.canvas_remote {
+            let reply = cntrl_core::ipc::canvas_request(&cntrl_core::ipc::Request::CanvasStop);
+            self.on_canvas_reply(reply);
+        }
+    }
+
     /// Point the color editor at effect color `idx` (clamped to the palette).
     fn select_canvas_color(&mut self, idx: usize) {
         let palette = &self.canvas_layout.settings.palette;
@@ -581,7 +641,9 @@ impl App {
 
     /// Push the current layout/settings into the running stream (if any) so
     /// edits take effect on the next hardware frame.
-    fn sync_stream(&self) {
+    fn sync_stream(&mut self) {
+        // The daemon gets edits batched once per tick (see `CanvasTick`).
+        self.canvas_dirty = self.canvas_remote;
         if let Some(stream) = &self.canvas_stream {
             if let Ok(mut shared) = stream.shared.lock() {
                 shared.identify = self
@@ -677,6 +739,8 @@ pub(crate) enum Message {
     /// (0 hue° | 1 saturation% | 2 lightness%, value) for the selected color.
     CanvasColorHsl(u8, f32),
     CanvasThemeAccent(bool),
+    /// Daemon starts the stream at login.
+    CanvasAutostart(bool),
     // Per-element trim on the selected device.
     CanvasDevBrightness(f32),
     CanvasDevHue(f32),
@@ -800,6 +864,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Slot(_) => Task::none(),
         Message::Apply => {
+            app.stop_canvas_stream();
             let doc = app.build_profile_document();
             app.profile = doc.clone();
             let slot = app.active_slot;
@@ -891,27 +956,41 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::CanvasTick => {
             // While streaming, follow the stream's clock so the preview shows
             // what the hardware shows.
-            let t0 = app.canvas_stream.as_ref().map_or(app.canvas_t0, |s| s.started);
+            let t0 = match &app.canvas_stream {
+                Some(stream) => stream.started,
+                None if app.canvas_remote => app.canvas_remote_t0,
+                None => app.canvas_t0,
+            };
             let t = t0.elapsed().as_secs_f32();
             app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t);
             // Surface live stream stats while running.
             if let Some(stream) = &app.canvas_stream {
-                if let Ok(stats) = stream.stats.lock() {
-                    let mut line = format!(
-                        "Streaming · {:.0} fps · frame {}",
-                        stats.actual_fps, stats.frames
-                    );
-                    if !stats.backends.is_empty() {
-                        line.push_str(&format!(" · {}", stats.backends));
+                let st = stream.status();
+                app.canvas_status = stream_status_line(
+                    "Streaming",
+                    st.fps,
+                    st.frames,
+                    &st.backends,
+                    &st.timing,
+                    st.last_error.as_deref(),
+                );
+            }
+            // Daemon stream: push edits at most once a tick, poll twice a second.
+            app.canvas_ticks = app.canvas_ticks.wrapping_add(1);
+            if app.canvas_remote && (app.canvas_dirty || app.canvas_ticks % 15 == 0) {
+                use cntrl_core::ipc::{canvas_request, Request};
+                let req = if std::mem::take(&mut app.canvas_dirty) {
+                    Request::CanvasUpdate {
+                        layout: app.canvas_layout.clone(),
+                        identify: app
+                            .canvas_identify
+                            .then(|| app.canvas_selected.clone())
+                            .flatten(),
                     }
-                    if !stats.timing.is_empty() {
-                        line.push_str(&format!(" · write {}", stats.timing));
-                    }
-                    if let Some(e) = &stats.last_error {
-                        line.push_str(&format!(" · last error: {e}"));
-                    }
-                    app.canvas_status = line;
-                }
+                } else {
+                    Request::CanvasStatus
+                };
+                app.on_canvas_reply(canvas_request(&req));
             }
             Task::none()
         }
@@ -1023,18 +1102,28 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CanvasStreamToggle => {
-            match app.canvas_stream.take() {
-                Some(stream) => {
-                    app.canvas_identify = false;
-                    stream.stop();
-                    app.canvas_status = "Stream stopped".into();
-                }
-                None => {
+            if app.streaming() {
+                app.stop_canvas_stream();
+            } else {
+                // The daemon owns the devices when it runs, so the effect
+                // survives closing this panel; stream in-process without it.
+                let reply = cntrl_core::ipc::canvas_request(&cntrl_core::ipc::Request::CanvasStart {
+                    layout: app.canvas_layout.clone(),
+                });
+                if let Ok(None) = reply {
                     app.canvas_stream =
                         Some(cntrl_core::canvas_stream::start(app.canvas_layout.clone()));
+                    app.canvas_status = "Stream starting… (no daemon: stops with this window)".into();
+                } else {
                     app.canvas_status = "Stream starting…".into();
+                    app.on_canvas_reply(reply);
                 }
             }
+            Task::none()
+        }
+        Message::CanvasAutostart(on) => {
+            app.settings.canvas_autostart = on;
+            persist_settings(app);
             Task::none()
         }
         Message::CanvasPushKeyboard => {
@@ -1268,6 +1357,27 @@ fn with_selected(app: &mut App, f: impl FnOnce(&mut cntrl_core::canvas::PlacedDe
         }
         app.sync_stream();
     }
+}
+
+fn stream_status_line(
+    prefix: &str,
+    fps: f32,
+    frames: u64,
+    backends: &str,
+    timing: &str,
+    last_error: Option<&str>,
+) -> String {
+    let mut line = format!("{prefix} · {fps:.0} fps · frame {frames}");
+    if !backends.is_empty() {
+        line.push_str(&format!(" · {backends}"));
+    }
+    if !timing.is_empty() {
+        line.push_str(&format!(" · write {timing}"));
+    }
+    if let Some(e) = last_error {
+        line.push_str(&format!(" · last error: {e}"));
+    }
+    line
 }
 
 fn persist_settings(app: &App) {
@@ -1740,7 +1850,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
     let s = &app.canvas_layout.settings;
     let controls_for = s.effect.controls();
-    let streaming = app.canvas_stream.is_some();
+    let streaming = app.streaming();
 
     let header = row![
         section_header(
@@ -1749,6 +1859,9 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             colors,
         ),
         Space::new().width(Length::Fill),
+        checkbox(app.settings.canvas_autostart)
+            .label("Start at login")
+            .on_toggle(Message::CanvasAutostart),
         button(text(if streaming { "Stop stream" } else { "Start stream" }).size(15))
             .on_press(Message::CanvasStreamToggle)
             .padding([11, 26])

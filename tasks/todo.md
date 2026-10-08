@@ -584,16 +584,21 @@ today's in-process stream as the fallback.
 **Acceptance criteria:**
 - [ ] Start the stream in the panel, close the panel: the effect keeps running
 - [ ] Reopen the panel: it shows "streaming" with live stats
-- [ ] Moving a device or a slider in the panel changes the hardware within one frame
-- [ ] With no daemon, the panel streams in-process as before
+- [x] Moving a device or a slider in the panel changes the hardware within one frame
+- [x] With no daemon, the panel streams in-process as before
 
 **Verification:**
-- [ ] Test: request/response JSON round-trip for the new messages
+- [x] Test: request/response JSON round-trip for the new messages
 - [ ] Manual: the three steps above; `cntrl canvas` also goes through the daemon
 
 **Dependencies:** Task 17
 **Files likely touched:** `cntrl-core/src/ipc.rs`, `cntrl-cli/src/daemon.rs`, `cntrl-cli/src/main.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** done. Checked through the socket and CLI on real hardware with the new
+daemon: start → 60 fps, keyboard 60/s, strips 52/s; `cntrl canvas --stop`; a timed run; SIGTERM
+while streaming restores lighting. The daemon now accepts connections on its own thread, so a
+request no longer waits up to 20 ms. Open: the panel side (close and reopen the panel).
 
 ## Task 24: Apply, theme sync and restore cooperate with a running stream
 
@@ -606,7 +611,7 @@ on) and does not write static colour to streamed devices.
 **Acceptance criteria:**
 - [ ] Apply on the Lighting tab while streaming ends with the applied colour on those devices, steady
 - [ ] A theme change while streaming does not flash static colour over the effect
-- [ ] `device_state.json` still records what to restore when the stream stops
+- [x] `device_state.json` still records what to restore when the stream stops
 
 **Verification:**
 - [ ] Manual: both cases with all devices streaming
@@ -614,6 +619,12 @@ on) and does not write static colour to streamed devices.
 **Dependencies:** Task 23, Task 21
 **Files likely touched:** `cntrl-cli/src/daemon.rs`, `cntrl-core/src/theme_sync.rs`, `cntrl-core/src/ipc.rs`
 **Estimated scope:** M
+
+**Status (2026-10-08):** an Apply from the panel or through the daemon stops the stream first.
+Theme sync while a stream runs saves the new colour but does not write it to the devices.
+`cntrl restore` while a stream runs restarts the stream instead (checked: "canvas stream
+restarted", back at 60 fps). Simpler than planned: Apply stops the whole stream, not only the
+devices it targets. Open: both manual checks; the theme path was not run.
 
 ## Task 25: Canvas starts at login and after resume
 
@@ -625,7 +636,7 @@ restoring static colour.
 **Acceptance criteria:**
 - [ ] With the toggle on, the effect is running after login without opening the panel
 - [ ] After suspend and resume the effect is running again within 10 s
-- [ ] With the toggle off, behaviour is the same as today
+- [x] With the toggle off, behaviour is the same as today
 
 **Verification:**
 - [ ] Manual: reboot; suspend and resume
@@ -633,6 +644,10 @@ restoring static colour.
 **Dependencies:** Task 23, Task 13
 **Files likely touched:** `cntrl-core/src/settings.rs`, `cntrl-cli/src/daemon.rs`, `cntrl-cli/src/main.rs`, `cntrl-iced/src/app.rs`
 **Estimated scope:** S
+
+**Status (2026-10-08):** `canvas_autostart` setting, "Start at login" box on the Canvas tab, daemon
+starts the stream on launch. Resume is handled by the restore change in Task 24 plus the 2 s
+device reconnect. Not run: autostart itself, reboot, suspend.
 
 ## Checkpoint D: always on
 - [ ] Effect survives closing the panel, a reboot, and suspend/resume

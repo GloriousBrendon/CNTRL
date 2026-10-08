@@ -34,7 +34,15 @@ pub fn apply_theme(slot: u8, options: ApplyOptions) -> Result<(u8, u8, u8), Stri
     if doc.data.light.config.effect == EFFECT_ID_OFF {
         doc.data.light.config.effect = MODE_STATIC;
     }
-    apply_local_with_options(&doc, slot, options)?;
+    if crate::canvas_stream::active() {
+        // The stream owns the devices: a static write would flash over the
+        // effect and be overwritten a frame later. Save the color so it is
+        // what comes back when the stream stops; an effect set to follow the
+        // theme accent picks it up by itself.
+        crate::persistence::persist_profile_slot(slot, &doc)?;
+    } else {
+        apply_local_with_options(&doc, slot, options)?;
+    }
     // Persist the *promoted* doc, so a slot that was Off doesn't get re-saved as
     // Off and re-applied dark by `cntrl restore` on the next boot.
     crate::device_state::remember_applied(&doc, options);

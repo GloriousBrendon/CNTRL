@@ -42,33 +42,87 @@ fn run_unix() -> Result<(), String> {
     std::thread::spawn(theme_watcher);
     let fan = std::thread::spawn(fan_watcher);
 
-    // Non-blocking accept so the main loop can notice a stop request (signal) and
-    // shut down cleanly, letting the fan engine restore hardware.
-    listener
-        .set_nonblocking(true)
-        .map_err(|e| e.to_string())?;
-    while !cntrl_core::fan_engine::should_stop() {
-        match listener.accept() {
-            Ok((s, _)) => {
-                std::thread::spawn(move || {
-                    if let Err(e) = handle_client(s) {
-                        eprintln!("cntrl daemon: client error: {e}");
-                    }
-                });
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            Err(e) => eprintln!("cntrl daemon: accept error: {e}"),
-        }
+    if cntrl_core::settings::load().canvas_autostart {
+        eprintln!("cntrl daemon: starting canvas stream (autostart)");
+        canvas(&Request::CanvasStart {
+            layout: cntrl_core::canvas::load_layout(),
+        });
     }
 
+    // Accept on its own thread (blocking, so clients are served at once) while
+    // this one waits for a stop signal. The accept thread dies with the process.
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            match conn {
+                Ok(s) => {
+                    std::thread::spawn(move || {
+                        if let Err(e) = handle_client(s) {
+                            eprintln!("cntrl daemon: client error: {e}");
+                        }
+                    });
+                }
+                Err(e) => eprintln!("cntrl daemon: accept error: {e}"),
+            }
+        }
+    });
+    while !cntrl_core::fan_engine::should_stop() {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Stopping the stream puts each device's saved lighting back.
+    canvas(&Request::CanvasStop);
     let _ = std::fs::remove_file(&path);
     // The fan thread restores the fans on its way out; exiting before it
     // finishes would strand them in manual mode.
     let _ = fan.join();
     eprintln!("cntrl daemon: stopped.");
     Ok(())
+}
+
+/// The daemon-owned canvas stream: it outlives the panel, and is the one
+/// writer to the devices while it runs.
+#[cfg(unix)]
+static CANVAS: std::sync::Mutex<Option<cntrl_core::canvas_stream::StreamHandle>> =
+    std::sync::Mutex::new(None);
+
+/// Carry out a `Canvas*` request and report the stream's state afterwards.
+#[cfg(unix)]
+fn canvas(req: &Request) -> ipc::CanvasStatus {
+    use cntrl_core::canvas_stream;
+    let mut slot = CANVAS.lock().expect("canvas stream slot");
+    // A stream whose thread died is as good as none.
+    if slot.as_ref().is_some_and(|s| !s.is_running()) {
+        *slot = None;
+    }
+    match req {
+        Request::CanvasStart { layout } => {
+            if let Some(old) = slot.take() {
+                old.stop();
+            }
+            *slot = Some(canvas_stream::start(layout.clone()));
+        }
+        Request::CanvasUpdate { layout, identify } => {
+            if let Some(stream) = slot.as_ref() {
+                let mut shared = stream.shared.lock().expect("stream shared");
+                shared.layout = layout.clone();
+                shared.identify = identify.clone();
+            }
+        }
+        Request::CanvasStop => {
+            if let Some(stream) = slot.take() {
+                stream.stop();
+            }
+        }
+        Request::CanvasRestart => {
+            if let Some(old) = slot.take() {
+                let layout = old.shared.lock().expect("stream shared").layout.clone();
+                old.stop();
+                *slot = Some(canvas_stream::start(layout));
+            }
+        }
+        _ => {}
+    }
+    slot.as_ref().map(|s| s.status()).unwrap_or_default()
 }
 
 /// Background fan control loop, mirroring `theme_watcher`'s shape. Reloads the
@@ -148,6 +202,8 @@ fn handle_client(mut stream: UnixStream) -> Result<(), String> {
     let resp = match req {
         Request::Ping => Response::ok_msg("pong"),
         Request::ApplyProfile { document, slot } => {
+            // An explicit apply wins over a running effect.
+            canvas(&Request::CanvasStop);
             match ipc::apply_local(&document, slot) {
                 Ok(()) => Response::ok_msg("lighting applied (keyboard + pc-rgb fanout)"),
                 Err(e) => {
@@ -158,6 +214,11 @@ fn handle_client(mut stream: UnixStream) -> Result<(), String> {
                     }
                 }
             }
+        }
+        canvas_req => {
+            let mut resp = Response::ok_msg("");
+            resp.canvas = Some(canvas(&canvas_req));
+            resp
         }
     };
     let out = serde_json::to_string(&resp).map_err(|e| e.to_string())?;
