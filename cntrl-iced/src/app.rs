@@ -1,6 +1,8 @@
-//! ICED shell: full desktop panel with sidebar + Lighting / Canvas / Devices / Sync pages.
+//! ICED shell: full desktop panel with sidebar + Lighting (Effects / Layout) / Fans /
+//! Devices / Settings pages. Look and behaviour follow `docs/design/HANDOFF.md`.
 
 use crate::canvas_tab;
+use crate::tokens;
 use cntrl_core::canvas::{self as core_canvas, CanvasLayout};
 use cntrl_core::canvas_effects::EffectKind;
 use cntrl_core::canvas_stream::StreamHandle;
@@ -14,15 +16,15 @@ use cntrl_core::persistence::{
 };
 use cntrl_core::profile::{self, ProfileDocument};
 use iced::widget::{
-    button, checkbox, column, container, pick_list, row, scrollable, slider, text, text_input,
-    Space,
+    button, checkbox, column, container, pick_list, row, scrollable, slider, stack, text,
+    text_input, Space,
 };
 use iced::window;
 use iced::theme::Palette;
 use iced::{
     Alignment, Color, Element, Font, Length, Task, Theme,
 };
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 /// Bundled Nerd Font for device-type icons (Material Design Icons glyph range).
 const NERD_FONT_BYTES: &[u8] =
@@ -37,26 +39,28 @@ pub fn run() -> iced::Result {
     iced::application(boot, update, view)
         .title("CNTRL")
         .font(NERD_FONT_BYTES)
+        .font(tokens::UI_FONT_FILES[0])
+        .font(tokens::UI_FONT_FILES[1])
+        .font(tokens::UI_FONT_FILES[2])
+        .font(tokens::UI_FONT_FILES[3])
+        .default_font(tokens::UI)
         .theme(|app: &App| app.ui_theme.clone())
         .subscription(|app: &App| {
-            let theme_poll =
-                iced::time::every(Duration::from_secs(1)).map(|_| Message::ThemePoll);
+            let mut subs =
+                vec![iced::time::every(Duration::from_secs(1)).map(|_| Message::ThemePoll)];
             if app.tab == ShellTab::Canvas {
-                iced::Subscription::batch([
-                    theme_poll,
-                    iced::time::every(Duration::from_millis(33)).map(|_| Message::CanvasTick),
-                ])
+                subs.push(iced::time::every(Duration::from_millis(33)).map(|_| Message::CanvasTick));
             } else if app.tab == ShellTab::Fans {
-                iced::Subscription::batch([
-                    theme_poll,
-                    iced::time::every(Duration::from_secs(1)).map(|_| Message::FanPoll),
-                ])
-            } else {
-                theme_poll
+                subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::FanPoll));
             }
+            // Only while a lighting change waits to be written.
+            if app.apply_pending.is_some() {
+                subs.push(iced::time::every(Duration::from_millis(50)).map(|_| Message::ApplyTick));
+            }
+            iced::Subscription::batch(subs)
         })
         .window(window::Settings {
-            size: iced::Size::new(1100.0, 720.0),
+            size: iced::Size::new(1280.0, 820.0),
             ..window::Settings::default()
         })
         .run()
@@ -73,11 +77,7 @@ fn boot() -> (App, Task<Message>) {
     // Pick up a stream the daemon is already running (autostart, or started
     // before this panel opened).
     app.on_canvas_reply(cntrl_core::ipc::canvas_request(&cntrl_core::ipc::Request::CanvasStatus));
-    app.theme_mtime = std::fs::metadata(theme::theme_file_path())
-        .ok()
-        .and_then(|m| m.modified().ok());
-    app.colors = theme::load_theme_from_disk();
-    app.ui_theme = iced_theme_from_colors(&app.colors);
+    app.retint();
     (app, Task::none())
 }
 
@@ -87,17 +87,13 @@ fn iced_theme_from_colors(tc: &theme::ThemeColors) -> Theme {
 
 fn palette_from_theme_colors(tc: &theme::ThemeColors) -> Palette {
     let base = Palette::DARK;
-    let background = color_from_hex(&tc.bg1).unwrap_or(base.background);
-    let text = color_from_hex(&tc.text).unwrap_or(base.text);
-    let primary = color_from_hex(&tc.accent).unwrap_or(base.primary);
-    let t = 0.25;
     Palette {
-        background,
-        text,
-        primary,
-        success: lerp_color(base.success, primary, t),
-        warning: lerp_color(base.warning, primary, t),
-        danger: lerp_color(base.danger, primary, t),
+        background: color_from_hex(&tc.bg1).unwrap_or(base.background),
+        text: color_from_hex(&tc.text).unwrap_or(base.text),
+        primary: color_from_hex(&tc.accent).unwrap_or(base.primary),
+        success: tokens::SUCCESS,
+        warning: tokens::WARNING,
+        danger: base.danger,
     }
 }
 
@@ -123,44 +119,31 @@ pub(crate) fn hexc(s: &str, fallback: Color) -> Color {
 fn contrast_on(c: Color) -> Color {
     let lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
     if lum > 0.6 {
-        Color::from_rgb(0.06, 0.06, 0.06)
+        tokens::ON_ACCENT
     } else {
         Color::WHITE
     }
 }
 
-// --- rice-faithful style helpers (capture pywal colors into iced style closures) ---
+// --- style helpers shared by the screens not yet ported to the redesign; they
+// read the same tokens through `App::colors` ---
 
-fn app_bg(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
-    let bg = hexc(&colors.bg1, Color::from_rgb8(0x0f, 0x18, 0x22));
-    let text = hexc(&colors.text, Color::WHITE);
+fn app_bg(_colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
     move |_| container::Style {
-        background: Some(bg.into()),
-        text_color: Some(text),
+        background: Some(tokens::BG.into()),
+        text_color: Some(tokens::TEXT),
         ..Default::default()
     }
 }
 
-fn sidebar_bg(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
-    let bg = hexc(&colors.bg2, Color::from_rgb8(0x08, 0x0c, 0x10));
-    move |_| container::Style {
-        background: Some(bg.into()),
-        ..Default::default()
-    }
-}
-
-/// Secondary/caption text colour: the theme text at reduced opacity.
-pub(crate) fn muted(colors: &theme::ThemeColors) -> Color {
-    let mut c = hexc(&colors.text, Color::WHITE);
-    c.a = 0.55;
-    c
+/// Secondary/caption text colour.
+pub(crate) fn muted(_colors: &theme::ThemeColors) -> Color {
+    tokens::TEXT_MUTED
 }
 
 /// Hairline border colour derived from the text colour (for definition on dark bg).
-fn hairline(colors: &theme::ThemeColors) -> Color {
-    let mut c = hexc(&colors.text, Color::WHITE);
-    c.a = 0.10;
-    c
+fn hairline(_colors: &theme::ThemeColors) -> Color {
+    tokens::BORDER
 }
 
 fn card(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
@@ -169,22 +152,9 @@ fn card(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
     move |_| container::Style {
         background: Some(surface.into()),
         border: iced::Border {
-            radius: 14.0.into(),
+            radius: tokens::RADIUS_CARD.into(),
             width: 1.0,
             color: line,
-        },
-        ..Default::default()
-    }
-}
-
-fn swatch_box(rgb: (u8, u8, u8)) -> impl Fn(&Theme) -> container::Style {
-    let c = Color::from_rgb8(rgb.0, rgb.1, rgb.2);
-    move |_| container::Style {
-        background: Some(c.into()),
-        border: iced::Border {
-            radius: 14.0.into(),
-            width: 1.0,
-            color: Color::from_rgba(1.0, 1.0, 1.0, 0.18),
         },
         ..Default::default()
     }
@@ -193,7 +163,7 @@ fn swatch_box(rgb: (u8, u8, u8)) -> impl Fn(&Theme) -> container::Style {
 /// Accent-coloured slider (filled track + accent handle).
 fn accent_slider(colors: &theme::ThemeColors) -> impl Fn(&Theme, slider::Status) -> slider::Style {
     let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    let track = hexc(&colors.bg2, Color::from_rgb8(0x08, 0x0c, 0x10));
+    let track = tokens::BORDER_CONTROL;
     move |theme, status| {
         let mut s = slider::default(theme, status);
         s.rail.backgrounds = (
@@ -303,26 +273,6 @@ pub(crate) enum ShellTab {
 }
 
 impl ShellTab {
-    fn label(self) -> &'static str {
-        match self {
-            ShellTab::Lighting => "Lighting",
-            ShellTab::Canvas => "Canvas",
-            ShellTab::Fans => "Fans",
-            ShellTab::Devices => "Devices",
-            ShellTab::Sync => "Sync",
-        }
-    }
-
-    fn all() -> [ShellTab; 5] {
-        [
-            ShellTab::Lighting,
-            ShellTab::Canvas,
-            ShellTab::Fans,
-            ShellTab::Devices,
-            ShellTab::Sync,
-        ]
-    }
-
     /// Startup tab override (`CNTRL_START_TAB=lighting|canvas|fans|devices|sync`).
     fn from_env() -> Self {
         match std::env::var("CNTRL_START_TAB")
@@ -362,7 +312,7 @@ impl TargetKind {
     }
 }
 
-/// Which devices the next Apply writes to. Each can be toggled independently,
+/// Which devices lighting changes are written to. Each can be toggled independently,
 /// so you can color e.g. just the RAM, or the keyboard + GPU.
 #[derive(Debug, Clone, Copy)]
 struct Targets {
@@ -402,6 +352,10 @@ impl Targets {
         }
     }
 
+    fn set_all(&mut self, on: bool) {
+        *self = Self { keyboard: on, ite: on, gpu: on, corsair: on };
+    }
+
     fn any_pc(&self) -> bool {
         self.ite || self.gpu || self.corsair
     }
@@ -423,12 +377,18 @@ impl Targets {
 }
 
 struct App {
-    /// ICED theme (pywal-driven when `colors.conf` is present).
     ui_theme: Theme,
-    /// Raw pywal colors (bg1/bg2/surface/accent/text) for rice-faithful styling.
+    /// Design tokens in the shape the older style helpers read; the accent is
+    /// the current lighting color (see `retint`).
     colors: theme::ThemeColors,
-    /// Last observed mtime of `theme_file_path()` for hot reload.
-    theme_mtime: Option<SystemTime>,
+    /// A lighting change waiting to be written (set when it was made).
+    apply_pending: Option<Instant>,
+    /// A write is running; the next one waits for it.
+    apply_busy: bool,
+    /// Sidebar profile list is open.
+    profile_menu: bool,
+    /// The background daemon answers on its socket.
+    engine_running: bool,
     tab: ShellTab,
     effect_id: i32,
     brightness: u8,
@@ -528,7 +488,10 @@ impl App {
         Self {
             ui_theme: Theme::Dark,
             colors: theme::ThemeColors::default(),
-            theme_mtime: None,
+            apply_pending: None,
+            apply_busy: false,
+            profile_menu: false,
+            engine_running: cntrl_core::ipc::socket_path().exists(),
             tab: ShellTab::from_env(),
             effect_id,
             brightness,
@@ -563,6 +526,33 @@ impl App {
             fan_selected: None,
             fan_status: String::new(),
         }
+    }
+
+    /// Keep the UI accent on the current lighting color (design token
+    /// "accent"). Too dark to read on the dark UI: the default accent.
+    fn retint(&mut self) {
+        let c = self.current_color;
+        let accent = if c.0.max(c.1).max(c.2) < 70 { tokens::DEFAULT_ACCENT } else { c };
+        let accent = rgb_to_hex(accent);
+        if self.colors.accent != accent || self.colors.bg1 != tokens::BG_HEX {
+            self.colors = theme::ThemeColors {
+                bg1: tokens::BG_HEX.into(),
+                bg2: tokens::SIDEBAR_HEX.into(),
+                surface: tokens::SURFACE_HEX.into(),
+                accent,
+                text: tokens::TEXT_HEX.into(),
+            };
+            self.ui_theme = iced_theme_from_colors(&self.colors);
+        }
+    }
+
+    fn accent(&self) -> Color {
+        hexc(&self.colors.accent, tokens::TEXT)
+    }
+
+    /// Write the lighting to the devices shortly (see `Message::ApplyTick`).
+    fn queue_apply(&mut self) {
+        self.apply_pending = Some(Instant::now());
     }
 
     /// Persist the fan curve config, surfacing any error in the status line.
@@ -700,8 +690,6 @@ pub(crate) enum Message {
     Tab(ShellTab),
     Effect(i32),
     Hue(f32),
-    Sat(f32),
-    Light(f32),
     Brightness(f32),
     Speed(f32),
     Swatch((u8, u8, u8)),
@@ -709,6 +697,14 @@ pub(crate) enum Message {
     HexSubmit,
     Apply,
     ApplyDone(Result<(), String>),
+    /// Debounce clock for live apply.
+    ApplyTick,
+    /// A slider was released: write its value now.
+    LightingCommit,
+    /// Pick an effect the background service renders (music, screen).
+    LightingReactive(EffectKind),
+    ToggleAllTargets,
+    ProfileMenu,
     Slot(u8),
     ToggleTarget(TargetKind),
     RefreshDevices,
@@ -789,21 +785,18 @@ pub(crate) enum Message {
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
+    let task = update_inner(app, message);
+    app.retint();
+    task
+}
+
+fn update_inner(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::ThemePoll => {
             if app.tab != ShellTab::Canvas {
                 app.canvas_screen = None; // no preview, no grabbing
             }
-            let path = theme::theme_file_path();
-            let current = std::fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok());
-            if current == app.theme_mtime {
-                return Task::none();
-            }
-            app.theme_mtime = current;
-            app.colors = theme::load_theme_from_disk();
-            app.ui_theme = iced_theme_from_colors(&app.colors);
+            app.engine_running = cntrl_core::ipc::socket_path().exists();
             Task::none()
         }
         Message::Tab(t) => {
@@ -824,21 +817,44 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::Effect(id) => {
             app.effect_id = id;
+            app.queue_apply();
             Task::none()
         }
         Message::Hue(h) => {
-            app.hsl.0 = h;
+            // The hue bar picks a pure color; shades come from swatches or hex.
+            app.hsl = (h, 1.0, 0.5);
             sync_rgb_from_hsl(app);
             Task::none()
         }
-        Message::Sat(s) => {
-            app.hsl.1 = s / 100.0;
-            sync_rgb_from_hsl(app);
+        Message::LightingCommit => {
+            app.queue_apply();
             Task::none()
         }
-        Message::Light(l) => {
-            app.hsl.2 = l / 100.0;
-            sync_rgb_from_hsl(app);
+        Message::ApplyTick => {
+            let due = app
+                .apply_pending
+                .is_some_and(|since| since.elapsed() >= Duration::from_millis(100));
+            if due && !app.apply_busy {
+                app.apply_pending = None;
+                return update_inner(app, Message::Apply);
+            }
+            Task::none()
+        }
+        Message::LightingReactive(kind) => {
+            let _ = update_inner(app, Message::CanvasEffect(kind));
+            if app.streaming() {
+                Task::none()
+            } else {
+                Task::done(Message::CanvasStreamToggle)
+            }
+        }
+        Message::ToggleAllTargets => {
+            let all = app.all_targets_on();
+            app.targets.set_all(!all);
+            Task::none()
+        }
+        Message::ProfileMenu => {
+            app.profile_menu = !app.profile_menu;
             Task::none()
         }
         Message::Brightness(b) => {
@@ -853,6 +869,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.current_color = rgb;
             app.hsl = rgb_to_hsl_f32(rgb.0, rgb.1, rgb.2);
             app.hex_input = rgb_to_hex(rgb);
+            app.queue_apply();
             Task::none()
         }
         Message::HexChanged(s) => {
@@ -861,6 +878,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Ok(rgb) = hex_to_rgb(&app.hex_input) {
                 app.current_color = rgb;
                 app.hsl = rgb_to_hsl_f32(rgb.0, rgb.1, rgb.2);
+                app.queue_apply();
             }
             Task::none()
         }
@@ -870,6 +888,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.current_color = rgb;
                     app.hsl = rgb_to_hsl_f32(rgb.0, rgb.1, rgb.2);
                     app.hex_input = rgb_to_hex(rgb);
+                    app.queue_apply();
                 }
                 Err(_) => app.status = format!("Invalid hex: {}", app.hex_input),
             }
@@ -879,10 +898,13 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             match load_profile_slot(slot) {
                 Ok(doc) => {
                     app.load_slot_in_place(doc, slot);
-                    app.status = format!("Loaded profile slot {slot}");
+                    app.status.clear();
+                    // Switching profile shows it on the devices.
+                    app.queue_apply();
                 }
                 Err(e) => app.status = format!("Load failed: {e}"),
             }
+            app.profile_menu = false;
             Task::none()
         }
         Message::Slot(_) => Task::none(),
@@ -892,10 +914,17 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             app.profile = doc.clone();
             let slot = app.active_slot;
             let targets = app.targets;
-            if !targets.keyboard && !targets.any_pc() {
-                app.status = "No devices selected".into();
+            // On-device animations exist on the keyboard only.
+            let pc_rgb = targets.any_pc() && !lighting_modes::is_preset_effect_id(app.effect_id);
+            if !targets.keyboard && !pc_rgb {
+                app.status = if targets.any_pc() {
+                    "This effect runs on the keyboard only".into()
+                } else {
+                    "No devices selected".into()
+                };
                 return Task::none();
             }
+            app.apply_busy = true;
             Task::perform(
                 async move {
                     tokio::task::spawn_blocking(move || {
@@ -904,7 +933,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
 
                         let options = ApplyOptions {
                             keyboard: targets.keyboard,
-                            pc_rgb: targets.any_pc(),
+                            pc_rgb,
                         };
                         // Restrict the PC fan-out to exactly the selected backends.
                         BackendRegistry::with_enabled(&targets.pc_env_value(), || {
@@ -921,10 +950,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             )
         }
         Message::ApplyDone(result) => {
-            app.status = match result {
-                Ok(()) => "Lighting applied".into(),
-                Err(e) => e,
-            };
+            app.apply_busy = false;
+            // Empty = fine: the Lighting footer then says where it is live.
+            app.status = result.err().unwrap_or_default();
             Task::none()
         }
         Message::ToggleTarget(kind) => {
@@ -1539,45 +1567,65 @@ fn view(app: &App) -> Element<'_, Message> {
     panel_view(app)
 }
 
-fn panel_view(app: &App) -> Element<'_, Message> {
-    let colors = &app.colors;
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
+// Nerd Font (Material Design Icons) glyphs.
+const ICON_LIGHTING: &str = "\u{F05A8}"; // md-white_balance_sunny
+const ICON_FANS: &str = "\u{F0210}"; // md-fan
+const ICON_DEVICES: &str = "\u{F061A}"; // md-chip
+const ICON_SYSTEM: &str = "\u{F0379}"; // md-monitor
+const ICON_SETTINGS: &str = "\u{F0493}"; // md-cog
+const ICON_CHECK: &str = "\u{F012C}"; // md-check
+const ICON_UNFOLD: &str = "\u{F054F}"; // md-unfold_more_horizontal
 
-    let mut nav = column![
-        text("CNTRL").size(24).color(accent),
-        text("rgb lighting").size(11).color(muted(colors)),
-        Space::new().height(8),
-        hairline_divider(colors),
-        Space::new().height(12),
-    ]
-    .spacing(2)
-    .width(Length::Fill);
-
-    for t in ShellTab::all() {
-        nav = nav.push(nav_btn(t, app.tab, colors));
+/// Filled, optionally outlined box: the base of cards, chips, dots and thumbs.
+fn boxed(
+    fill: impl Into<iced::Background>,
+    border: Color,
+    width: f32,
+    radius: impl Into<iced::border::Radius>,
+) -> impl Fn(&Theme) -> container::Style {
+    let (fill, radius) = (fill.into(), radius.into());
+    move |_| container::Style {
+        background: Some(fill),
+        border: iced::Border { radius, width, color: border },
+        ..Default::default()
     }
+}
 
-    nav = nav.push(Space::new().height(22));
-    nav = nav.push(text("PROFILE").size(10).color(muted(colors)));
-    nav = nav.push(Space::new().height(2));
-    nav = nav.push(
-        row![
-            slot_button(0, app.active_slot, colors),
-            slot_button(1, app.active_slot, colors),
-            slot_button(2, app.active_slot, colors),
-            slot_button(3, app.active_slot, colors),
-        ]
-        .spacing(8),
-    );
-    nav = nav.push(Space::new().height(Length::Fill));
-    nav = nav.push(device_summary(app));
+/// Small solid shape (status dots, the brand mark, the color chip).
+fn shape(color: Color, size: f32, radius: f32) -> Element<'static, Message> {
+    container(Space::new().width(size).height(size))
+        .style(boxed(color, Color::TRANSPARENT, 0.0, radius))
+        .into()
+}
 
-    let sidebar = container(nav.height(Length::Fill))
-        .padding(20)
-        .width(216)
-        .height(Length::Fill)
-        .style(sidebar_bg(colors));
+/// Flat button look: the redesign's nav items, segments and chips.
+fn flat_button(
+    fill: Color,
+    hover: Color,
+    fg: Color,
+    border: Color,
+    radius: f32,
+) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| button::Style {
+        background: Some(
+            if matches!(status, button::Status::Hovered) { hover } else { fill }.into(),
+        ),
+        text_color: fg,
+        border: iced::Border {
+            radius: radius.into(),
+            width: if border == Color::TRANSPARENT { 0.0 } else { 1.0 },
+            color: border,
+        },
+        ..button::Style::default()
+    }
+}
 
+/// Center a fixed-height button's content vertically.
+fn vcenter<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content).center_y(Length::Fill).into()
+}
+
+fn panel_view(app: &App) -> Element<'_, Message> {
     let main: Element<'_, Message> = match app.tab {
         ShellTab::Lighting => lighting_view(app),
         ShellTab::Canvas => canvas_view(app),
@@ -1586,70 +1634,198 @@ fn panel_view(app: &App) -> Element<'_, Message> {
         ShellTab::Sync => sync_view(app),
     };
     let main = container(main)
-        .padding(28)
+        .padding([32, 40])
         .width(Length::Fill)
         .height(Length::Fill);
+    let edge = container(Space::new().width(1).height(Length::Fill))
+        .style(boxed(tokens::SIDEBAR_EDGE, Color::TRANSPARENT, 0.0, 0.0));
 
-    container(row![sidebar, main])
+    container(row![sidebar(app), edge, main])
         .width(Length::Fill)
         .height(Length::Fill)
         .style(app_bg(&app.colors))
         .into()
 }
 
-fn nav_btn(tab: ShellTab, current: ShellTab, colors: &theme::ThemeColors) -> Element<'_, Message> {
-    button(text(tab.label()).size(15))
-        .on_press(Message::Tab(tab))
-        .width(Length::Fill)
-        .padding([10, 12])
-        .style(nav_button_style(colors, tab == current))
-        .into()
-}
+fn sidebar(app: &App) -> Element<'_, Message> {
+    let accent = app.accent();
 
-/// Compact device-health line for the sidebar footer.
-fn device_summary(app: &App) -> Element<'_, Message> {
-    use cntrl_core::devices::DeviceStatus;
-    let ready = app
-        .devices
-        .iter()
-        .filter(|d| d.status == DeviceStatus::Ready)
-        .count();
-    let blocked = app
-        .devices
-        .iter()
-        .filter(|d| d.status == DeviceStatus::Blocked)
-        .count();
-    let (dot, color) = if blocked > 0 {
-        ("●", Color::from_rgb8(0xe0, 0x6c, 0x4c))
-    } else if ready > 0 {
-        ("●", Color::from_rgb8(0x4c, 0xc2, 0x6a))
-    } else {
-        ("○", Color::from_rgb8(0x80, 0x80, 0x80))
-    };
-    let summary = if blocked > 0 {
-        format!("{blocked} blocked · {ready} ready")
-    } else {
-        format!("{ready} device(s) ready")
-    };
-    button(
-        row![text(dot).color(color), text(summary).size(12)]
-            .spacing(8)
+    // Brand mark: a 3×3 grid fading away from the diagonal.
+    let mut mark = column![].spacing(3);
+    for r in 0..3usize {
+        let mut line = row![].spacing(3);
+        for c in 0..3usize {
+            let a = [1.0, 0.55, 0.25][r.abs_diff(c)];
+            line = line.push(shape(Color { a, ..accent }, 6.0, 2.0));
+        }
+        mark = mark.push(line);
+    }
+    let brand = container(
+        row![mark, text("CNTRL").size(18).font(tokens::UI_BOLD)]
+            .spacing(10)
             .align_y(Alignment::Center),
     )
-    .on_press(Message::Tab(ShellTab::Devices))
+    .padding([4, 8]);
+
+    let mut profile = column![button(vcenter(
+        row![
+            column![
+                text("PROFILE").size(11).color(tokens::TEXT_MUTED),
+                text(profile_name(app)).size(14).font(tokens::UI_SEMIBOLD),
+            ]
+            .spacing(1)
+            .width(Length::Fill),
+            icon(ICON_UNFOLD, 16, tokens::TEXT_MUTED),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    ))
+    .on_press(Message::ProfileMenu)
     .width(Length::Fill)
-    .padding([8, 10])
-    .style(nav_button_style(&app.colors, false))
+    .height(52)
+    .padding([0, 12])
+    .style(flat_button(
+        tokens::SURFACE,
+        tokens::HOVER,
+        tokens::TEXT,
+        tokens::BORDER_PROFILE,
+        tokens::RADIUS_CONTROL,
+    ))]
+    .spacing(2);
+    if app.profile_menu {
+        // The four keyboard slots; only the loaded one's name is known.
+        for slot in 0..4u8 {
+            let on = slot == app.active_slot;
+            let mut line = row![text(format!("Profile {}", slot + 1)).size(14).width(Length::Fill)]
+                .align_y(Alignment::Center);
+            if on {
+                line = line.push(icon(ICON_CHECK, 16, accent));
+            }
+            profile = profile.push(
+                button(vcenter(line))
+                    .on_press(Message::Slot(slot))
+                    .width(Length::Fill)
+                    .height(40)
+                    .padding([0, 12])
+                    .style(flat_button(
+                        if on { tokens::SELECTED } else { Color::TRANSPARENT },
+                        tokens::HOVER,
+                        if on { tokens::TEXT } else { tokens::TEXT_NAV },
+                        Color::TRANSPARENT,
+                        8.0,
+                    )),
+            );
+        }
+    }
+
+    let lighting_on = matches!(app.tab, ShellTab::Lighting | ShellTab::Canvas);
+    let system = container(
+        row![
+            icon(ICON_SYSTEM, 20, tokens::TEXT_DISABLED),
+            text("System").size(14).color(tokens::TEXT_DISABLED).width(Length::Fill),
+            container(text("Soon").size(11).color(tokens::TEXT_MUTED))
+                .padding([2, 8])
+                .style(boxed(
+                    Color::TRANSPARENT,
+                    tokens::BORDER_CONTROL,
+                    1.0,
+                    tokens::RADIUS_PILL,
+                )),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    )
+    .center_y(tokens::TARGET)
+    .padding([0, 12]);
+    // ponytail: no Overview item yet — its screen (Main.dc.html) is not ported.
+    let nav = column![
+        nav_item(ICON_LIGHTING, "Lighting", lighting_on, accent, ShellTab::Lighting),
+        nav_item(ICON_FANS, "Fans", app.tab == ShellTab::Fans, accent, ShellTab::Fans),
+        nav_item(ICON_DEVICES, "Devices", app.tab == ShellTab::Devices, accent, ShellTab::Devices),
+        system,
+    ]
+    .spacing(2);
+
+    use cntrl_core::devices::DeviceStatus;
+    let count = |s: DeviceStatus| app.devices.iter().filter(|d| d.status == s).count();
+    let (ready, blocked) = (count(DeviceStatus::Ready), count(DeviceStatus::Blocked));
+    let engine = if app.engine_running { "engine running" } else { "engine stopped" };
+    let (dot, line) = if blocked > 0 {
+        (tokens::WARNING, format!("{blocked} blocked · {ready} ready"))
+    } else if app.engine_running {
+        (tokens::SUCCESS, format!("{ready} devices · {engine}"))
+    } else {
+        (tokens::TEXT_DISABLED, format!("{ready} devices · {engine}"))
+    };
+    let status = container(
+        row![shape(dot, 8.0, tokens::RADIUS_PILL), text(line).size(12).color(tokens::TEXT_MUTED)]
+            .spacing(10)
+            .align_y(Alignment::Center),
+    )
+    .padding([10, 12]);
+
+    container(
+        column![
+            brand,
+            profile,
+            nav,
+            Space::new().height(Length::Fill),
+            column![
+                nav_item(ICON_SETTINGS, "Settings", app.tab == ShellTab::Sync, accent, ShellTab::Sync),
+                status,
+            ]
+            .spacing(2),
+        ]
+        .spacing(20),
+    )
+    .padding([20, 14])
+    .width(232)
+    .height(Length::Fill)
+    .style(boxed(tokens::SIDEBAR, Color::TRANSPARENT, 0.0, 0.0))
     .into()
 }
 
-fn slot_button(slot: u8, active: u8, colors: &theme::ThemeColors) -> Element<'static, Message> {
-    let label = format!("{}", slot + 1);
-    button(text(label))
-        .on_press(Message::Slot(slot))
-        .padding([8, 12])
-        .style(segment_style(colors, active == slot))
-        .into()
+/// The loaded profile's own name, or its slot number.
+fn profile_name(app: &App) -> String {
+    let name = app.profile.data.name.trim();
+    if name.is_empty() {
+        format!("Profile {}", app.active_slot + 1)
+    } else {
+        name.to_string()
+    }
+}
+
+fn nav_item<'a>(
+    glyph: &'a str,
+    label: &'a str,
+    active: bool,
+    accent: Color,
+    tab: ShellTab,
+) -> Element<'a, Message> {
+    let fg = if active { tokens::TEXT } else { tokens::TEXT_NAV };
+    button(vcenter(
+        row![
+            icon(glyph, 20, if active { accent } else { fg }),
+            text(label)
+                .size(14)
+                .font(if active { tokens::UI_SEMIBOLD } else { tokens::UI })
+                .color(fg),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
+    ))
+    .on_press(Message::Tab(tab))
+    .width(Length::Fill)
+    .height(tokens::TARGET)
+    .padding([0, 12])
+    .style(flat_button(
+        if active { tokens::SELECTED } else { Color::TRANSPARENT },
+        if active { tokens::SELECTED } else { tokens::HOVER },
+        fg,
+        Color::TRANSPARENT,
+        8.0,
+    ))
+    .into()
 }
 
 fn effect_name(id: i32) -> String {
@@ -1733,208 +1909,561 @@ fn hairline_divider(colors: &theme::ThemeColors) -> Element<'static, Message> {
         .into()
 }
 
-fn lighting_view(app: &App) -> Element<'_, Message> {
-    let colors = &app.colors;
-    let hex = rgb_to_hex(app.current_color);
+/// Effects / Layout switch shared by both Lighting views.
+fn lighting_tabs(layout: bool) -> Element<'static, Message> {
+    let seg = |label: &'static str, on: bool, tab: ShellTab| {
+        button(vcenter(
+            text(label)
+                .size(14)
+                .font(if on { tokens::UI_SEMIBOLD } else { tokens::UI_MEDIUM }),
+        ))
+        .on_press(Message::Tab(tab))
+        .height(40)
+        .padding([0, 18])
+        .style(flat_button(
+            if on { tokens::SEGMENT_ON } else { Color::TRANSPARENT },
+            if on { tokens::SEGMENT_ON } else { tokens::HOVER },
+            if on { tokens::TEXT } else { tokens::TEXT_NAV },
+            Color::TRANSPARENT,
+            9.0,
+        ))
+    };
+    container(
+        row![
+            seg("Effects", !layout, ShellTab::Lighting),
+            seg("Layout", layout, ShellTab::Canvas),
+        ]
+        .spacing(4),
+    )
+    .padding(4)
+    .style(boxed(tokens::INSET, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE))
+    .into()
+}
 
-    let preview = container(Space::new())
-        .width(60)
-        .height(60)
-        .style(swatch_box(app.current_color));
-    let header = row![
-        section_header(
-            "Lighting",
-            format!(
-                "Slot {} · {}",
-                app.active_slot + 1,
-                effect_name(app.effect_id)
-            ),
-            colors,
-        ),
+/// Page title, one-line explanation and the Effects / Layout switch.
+fn lighting_header(caption: &'static str, layout: bool) -> Element<'static, Message> {
+    row![
+        column![
+            text("Lighting").size(28).font(tokens::UI_SEMIBOLD),
+            text(caption).size(14).color(tokens::TEXT_SECONDARY),
+        ]
+        .spacing(4),
         Space::new().width(Length::Fill),
-        text(hex)
-            .font(iced::Font::MONOSPACE)
-            .size(15)
-            .color(muted(colors)),
-        preview,
+        lighting_tabs(layout),
     ]
     .spacing(16)
-    .align_y(Alignment::Center);
-
-    // --- Effects card ---
-    let special = row![
-        effect_btn("Static", MODE_STATIC, app.effect_id, colors),
-        effect_btn("Custom", MODE_CUSTOM, app.effect_id, colors),
-        effect_btn("Off", EFFECT_ID_OFF, app.effect_id, colors),
-    ]
-    .spacing(8);
-    let presets: Element<'_, Message> = {
-        let mut col = column![].spacing(5);
-        for m in PRESET_MODES {
-            col = col.push(effect_btn(m.label, i32::from(m.effect_id), app.effect_id, colors));
-        }
-        scrollable(col).height(Length::Fill).into()
-    };
-    let effects = container(
-        column![
-            card_label("EFFECT", colors),
-            special,
-            Space::new().height(2),
-            presets,
-        ]
-        .spacing(12),
-    )
-    .padding(18)
-    .height(Length::Fill)
-    .width(Length::FillPortion(1))
-    .style(card(colors));
-
-    // --- Color + Controls cards ---
-    let color_card = container(
-        column![
-            card_label("COLOR", colors),
-            labeled_slider(
-                "Hue",
-                format!("{:.0}°", app.hsl.0),
-                0.0..=360.0,
-                app.hsl.0,
-                colors,
-                Message::Hue
-            ),
-            labeled_slider(
-                "Saturation",
-                format!("{:.0}%", app.hsl.1 * 100.0),
-                0.0..=100.0,
-                app.hsl.1 * 100.0,
-                colors,
-                Message::Sat
-            ),
-            labeled_slider(
-                "Lightness",
-                format!("{:.0}%", app.hsl.2 * 100.0),
-                0.0..=100.0,
-                app.hsl.2 * 100.0,
-                colors,
-                Message::Light
-            ),
-            Space::new().height(2),
-            swatches(app.current_color, colors),
-            hex_input_row(&app.hex_input, app.current_color, colors),
-        ]
-        .spacing(12),
-    )
-    .padding(18)
-    .width(Length::Fill)
-    .style(card(colors));
-
-    let controls_card = container(
-        column![
-            card_label("CONTROLS", colors),
-            labeled_slider(
-                "Brightness",
-                format!("{}%", app.brightness),
-                0.0..=100.0,
-                app.brightness as f32,
-                colors,
-                Message::Brightness
-            ),
-            labeled_slider(
-                "Speed",
-                format!("{}", app.speed),
-                0.0..=5.0,
-                app.speed as f32,
-                colors,
-                Message::Speed
-            ),
-        ]
-        .spacing(12),
-    )
-    .padding(18)
-    .width(Length::Fill)
-    .style(card(colors));
-
-    let right = column![color_card, controls_card]
-        .spacing(16)
-        .width(Length::FillPortion(1));
-
-    // --- Apply bar: per-device target chips + accent Apply ---
-    let apply_bar = column![
-        row![
-            text("APPLY TO").size(11).color(muted(colors)),
-            Space::new().width(Length::Fill),
-            status_text(&app.status, colors),
-        ]
-        .align_y(Alignment::Center),
-        row![
-            target_chips(app),
-            Space::new().width(Length::Fill),
-            button(text("Apply").size(15))
-                .on_press(Message::Apply)
-                .padding([12, 34])
-                .style(accent_button_style(colors)),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center),
-    ]
-    .spacing(10);
-
-    column![
-        header,
-        row![effects, right].spacing(16).height(Length::Fill),
-        apply_bar,
-    ]
-    .spacing(18)
+    .align_y(Alignment::End)
     .into()
 }
 
-/// Row of per-device selection chips (icon + label), built from detected devices.
-fn target_chips(app: &App) -> Element<'_, Message> {
+/// One entry of the merged effect gallery.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Fx {
+    /// Runs on the device (profile effect id).
+    Device(i32),
+    /// Rendered by the background service through the Layout stream.
+    Reactive(EffectKind),
+}
+
+/// Reactive tiles: (effect, name, why the color section is hidden).
+const REACTIVE: [(EffectKind, &str, &str); 2] = [
+    (EffectKind::SpectrumBars, "Music", "Music colors are set on the Layout tab."),
+    (
+        EffectKind::ScreenAmbient,
+        "Screen ambient",
+        "Colors come from whatever is on your screen.",
+    ),
+];
+
+impl App {
+    /// The gallery tile that is live right now.
+    fn current_fx(&self) -> Fx {
+        let streamed = self.canvas_layout.settings.effect;
+        if self.streaming() && REACTIVE.iter().any(|r| r.0 == streamed) {
+            Fx::Reactive(streamed)
+        } else {
+            Fx::Device(self.effect_id)
+        }
+    }
+
+    /// Detected device kinds, in chip order, without repeats.
+    fn target_kinds(&self) -> Vec<TargetKind> {
+        let mut kinds = Vec::new();
+        for d in &self.devices {
+            let k = TargetKind::from_device_kind(d.kind);
+            if !kinds.contains(&k) {
+                kinds.push(k);
+            }
+        }
+        kinds
+    }
+
+    fn all_targets_on(&self) -> bool {
+        self.target_kinds().iter().all(|k| self.targets.get(*k))
+    }
+}
+
+/// Mix `color` towards the thumbnail dark by the brightness setting.
+fn dimmed(color: Color, brightness: f32) -> Color {
+    lerp_color(tokens::THUMB_DARK, color, 0.35 + 0.65 * (brightness / 100.0).clamp(0.0, 1.0))
+}
+
+/// Tile / preview picture for an effect. `nth` varies the on-device
+/// animations, which have no artwork of their own.
+fn fx_thumb(fx: Fx, nth: usize, color: Color, brightness: f32) -> iced::Background {
+    use iced::gradient::Linear;
+    let c = dimmed(color, brightness);
+    let dark = tokens::THUMB_DARK;
+    let linear = |deg: f32, stops: &[(f32, Color)]| {
+        let mut g = Linear::new(iced::Radians(deg.to_radians()));
+        for (at, color) in stops {
+            g = g.add_stop(*at, *color);
+        }
+        iced::Background::Gradient(g.into())
+    };
+    match fx {
+        Fx::Device(EFFECT_ID_OFF) => tokens::THUMB_OFF.into(),
+        Fx::Device(MODE_STATIC) => c.into(),
+        Fx::Device(MODE_CUSTOM) => linear(
+            90.0,
+            &[
+                (0.0, dimmed(Color::from_rgb8(0xff, 0x3b, 0x3b), brightness)),
+                (0.35, dimmed(Color::from_rgb8(0xff, 0xd2, 0x3b), brightness)),
+                (0.65, dimmed(Color::from_rgb8(0x3b, 0xd8, 0xff), brightness)),
+                (1.0, dimmed(Color::from_rgb8(0x7a, 0x3b, 0xff), brightness)),
+            ],
+        ),
+        Fx::Device(_) => {
+            let at = 0.25 + 0.5 * ((nth % 4) as f32 / 3.0);
+            linear(
+                20.0 + 40.0 * (nth % 9) as f32,
+                &[(0.0, dark), (at, c), (1.0, dark)],
+            )
+        }
+        Fx::Reactive(EffectKind::ScreenAmbient) => linear(
+            90.0,
+            &[
+                (0.0, dimmed(Color::from_rgb8(0x3b, 0x6b, 0xff), brightness)),
+                (0.5, dimmed(Color::from_rgb8(0xff, 0x8a, 0x3b), brightness)),
+                (1.0, dimmed(Color::from_rgb8(0x2b, 0xd8, 0xa0), brightness)),
+            ],
+        ),
+        Fx::Reactive(_) => linear(0.0, &[(0.0, c), (0.6, c), (0.62, dark), (1.0, dark)]),
+    }
+}
+
+fn fx_tile<'a>(
+    fx: Fx,
+    name: &'a str,
+    note: &'a str,
+    on: bool,
+    accent: Color,
+    thumb: iced::Background,
+) -> Element<'a, Message> {
+    let picture = container(Space::new().width(Length::Fill).height(64)).style(boxed(
+        thumb,
+        Color::TRANSPARENT,
+        0.0,
+        iced::border::top(tokens::RADIUS_TILE - 2.0),
+    ));
+    button(column![
+        picture,
+        container(
+            column![
+                text(name).size(14).font(tokens::UI_SEMIBOLD).color(tokens::TEXT),
+                // Always a line, so tiles with and without a note line up.
+                text(if note.is_empty() { " " } else { note }).size(12).color(tokens::TEXT_MUTED),
+            ]
+            .spacing(2),
+        )
+        .padding(iced::Padding { top: 10.0, right: 12.0, bottom: 12.0, left: 12.0 }),
+    ])
+    .on_press(match fx {
+        Fx::Device(id) => Message::Effect(id),
+        Fx::Reactive(kind) => Message::LightingReactive(kind),
+    })
+    // The 2px selection border is drawn inside the tile.
+    .padding(2)
+    .width(160)
+    .style(move |_, _| button::Style {
+        background: Some(tokens::SURFACE.into()),
+        text_color: tokens::TEXT,
+        border: iced::Border {
+            radius: tokens::RADIUS_TILE.into(),
+            width: 2.0,
+            color: if on { accent } else { tokens::BORDER },
+        },
+        ..button::Style::default()
+    })
+    .into()
+}
+
+fn lighting_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
-    let mut r = row![].spacing(8);
-    for d in &app.devices {
-        let kind = TargetKind::from_device_kind(d.kind);
+    let accent = app.accent();
+    let current = app.current_fx();
+    let reactive = matches!(current, Fx::Reactive(_));
+    let lit = Color::from_rgb8(app.current_color.0, app.current_color.1, app.current_color.2);
+    let brightness = if reactive {
+        app.canvas_layout.settings.brightness
+    } else {
+        f32::from(app.brightness)
+    };
+
+    // ── Apply to ──
+    let mut targets = row![
+        text("APPLY TO").size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY),
+        Space::new().width(6),
+        target_chip("All devices", app.all_targets_on(), accent, Message::ToggleAllTargets),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
+    for kind in app.target_kinds() {
         let label = match kind {
             TargetKind::Keyboard => "Keyboard",
-            TargetKind::Ite => "Motherboard",
-            TargetKind::Gpu => "GPU",
+            TargetKind::Ite => "Fans & board",
+            TargetKind::Gpu => "Graphics card",
             TargetKind::Corsair => "RAM",
         };
-        r = r.push(target_chip(
+        targets = targets.push(target_chip(
             label,
-            d.kind.icon(),
-            kind,
             app.targets.get(kind),
-            colors,
+            accent,
+            Message::ToggleTarget(kind),
         ));
     }
-    r.into()
+
+    // ── Effect gallery ──
+    fn group<'a>(
+        title: &'a str,
+        hint: &'a str,
+        tiles: Vec<Element<'a, Message>>,
+    ) -> iced::widget::Column<'a, Message> {
+        column![
+            row![
+                text(title).size(15).font(tokens::UI_SEMIBOLD),
+                text(hint).size(13).color(tokens::TEXT_MUTED),
+            ]
+            .spacing(10)
+            .align_y(Alignment::End),
+            iced::widget::Row::with_children(tiles).spacing(12).wrap().vertical_spacing(12),
+        ]
+        .spacing(12)
+    }
+    let tile = |fx: Fx, nth: usize, name: &'static str, note: &'static str| {
+        fx_tile(fx, name, note, fx == current, accent, fx_thumb(fx, nth, lit, brightness))
+    };
+    let basic = vec![
+        tile(Fx::Device(MODE_STATIC), 0, "Static", ""),
+        tile(Fx::Device(MODE_CUSTOM), 0, "Custom", "Per-key colors"),
+        tile(Fx::Device(EFFECT_ID_OFF), 0, "Off", ""),
+    ];
+    let animated = PRESET_MODES
+        .iter()
+        .enumerate()
+        .map(|(nth, m)| tile(Fx::Device(i32::from(m.effect_id)), nth, m.label, "Keyboard only"))
+        .collect();
+    let reactive_tiles = REACTIVE
+        .iter()
+        .map(|(kind, name, _)| tile(Fx::Reactive(*kind), 0, name, "Runs in background"))
+        .collect();
+    let gallery = scrollable(
+        column![
+            group("Basic", "", basic),
+            group("Animated", "Runs on the devices themselves", animated),
+            group("Reactive", "Follows your music or screen", reactive_tiles),
+        ]
+        .spacing(24)
+        .padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO }),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    // ── Settings for the chosen effect ──
+    let name = match current {
+        Fx::Device(id) => effect_name(id),
+        Fx::Reactive(kind) => REACTIVE
+            .iter()
+            .find(|r| r.0 == kind)
+            .map_or_else(String::new, |r| r.1.to_string()),
+    };
+    let preview = container(
+        container(text(name).size(13).font(tokens::UI_SEMIBOLD))
+            .padding([6, 12])
+            .style(boxed(
+                Color::from_rgba8(10, 12, 15, 0.72),
+                Color::TRANSPARENT,
+                0.0,
+                tokens::RADIUS_PILL,
+            )),
+    )
+    .width(Length::Fill)
+    .height(132)
+    .padding(12)
+    .align_x(Alignment::End)
+    .align_y(Alignment::End)
+    .style(boxed(
+        fx_thumb(current, 0, lit, brightness),
+        Color::TRANSPARENT,
+        0.0,
+        tokens::RADIUS_TILE,
+    ));
+
+    let no_color = match current {
+        Fx::Device(EFFECT_ID_OFF) => Some("Lights are off on the selected devices."),
+        Fx::Reactive(kind) => REACTIVE.iter().find(|r| r.0 == kind).map(|r| r.2),
+        Fx::Device(_) => None,
+    };
+    let color_section: Element<'_, Message> = match no_color {
+        Some(why) => container(text(why).size(14).color(tokens::TEXT_NAV))
+            .padding(14)
+            .width(Length::Fill)
+            .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_CONTROL))
+            .into(),
+        None => column![
+            row![
+                text("COLOR").size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY),
+                Space::new().width(Length::Fill),
+                shape(lit, 20.0, 6.0),
+                hex_field(&app.hex_input, accent),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            swatches(app.current_color),
+            column![
+                text("Hue").size(13).color(tokens::TEXT_NAV),
+                hue_slider(app.hsl.0),
+            ]
+            .spacing(6),
+        ]
+        .spacing(12)
+        .into(),
+    };
+
+    let mut sliders = column![].spacing(16);
+    sliders = sliders.push(if reactive {
+        value_slider(
+            "Brightness",
+            format!("{brightness:.0}%"),
+            slider(0.0..=100.0, brightness, Message::CanvasBrightness)
+                .on_release(Message::CanvasDragEnd)
+                .style(accent_slider(colors)),
+        )
+    } else {
+        value_slider(
+            "Brightness",
+            format!("{}%", app.brightness),
+            slider(0.0..=100.0, brightness, Message::Brightness)
+                .on_release(Message::LightingCommit)
+                .style(accent_slider(colors)),
+        )
+    });
+    // Speed only means something to the on-device animations.
+    if matches!(current, Fx::Device(id) if lighting_modes::is_preset_effect_id(id)) {
+        let speed = app.speed.clamp(1, 5);
+        let names = ["Slowest", "Slow", "Medium", "Fast", "Fastest"];
+        sliders = sliders.push(value_slider(
+            "Speed",
+            names[usize::from(speed) - 1].to_string(),
+            slider(1.0..=5.0, f32::from(speed), Message::Speed)
+                .on_release(Message::LightingCommit)
+                .style(accent_slider(colors)),
+        ));
+    }
+
+    let (dot, status) = lighting_status(app, current);
+    let footer = column![
+        container(Space::new().height(1).width(Length::Fill)).style(boxed(
+            tokens::SEGMENT_ON,
+            Color::TRANSPARENT,
+            0.0,
+            0.0
+        )),
+        row![
+            shape(dot, 8.0, tokens::RADIUS_PILL),
+            text(status).size(13).color(tokens::TEXT_SECONDARY),
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(16);
+
+    let aside = container(column![preview, color_section, sliders, footer].spacing(22))
+        .padding(20)
+        .width(340)
+        .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD));
+
+    column![
+        lighting_header(
+            "Choose devices, pick an effect, set the color. Changes apply as you go.",
+            false,
+        ),
+        targets,
+        row![gallery, aside].spacing(24).height(Length::Fill),
+    ]
+    .spacing(24)
+    .into()
 }
 
-fn target_chip<'a>(
+/// What the footer of the effect settings says, and its dot color.
+fn lighting_status(app: &App, current: Fx) -> (Color, String) {
+    if !app.status.is_empty() {
+        return (tokens::WARNING, app.status.clone());
+    }
+    if let Fx::Reactive(_) = current {
+        return (tokens::SUCCESS, "Live · runs in the background".into());
+    }
+    let keyboard_only = lighting_modes::is_preset_effect_id(app.effect_id);
+    let count = app
+        .target_kinds()
+        .into_iter()
+        .filter(|k| app.targets.get(*k) && (!keyboard_only || *k == TargetKind::Keyboard))
+        .count();
+    match count {
+        0 => (tokens::TEXT_DISABLED, "No devices selected".into()),
+        n => (
+            tokens::SUCCESS,
+            format!(
+                "Live on {n} device{} · saved to {}",
+                if n == 1 { "" } else { "s" },
+                profile_name(app)
+            ),
+        ),
+    }
+}
+
+/// "Apply to" chip: outlined pill, accent-ringed with a check when on.
+fn target_chip<'a>(label: &'a str, on: bool, accent: Color, msg: Message) -> Element<'a, Message> {
+    let mut content = row![].spacing(6).align_y(Alignment::Center);
+    if on {
+        content = content.push(icon(ICON_CHECK, 16, tokens::TEXT));
+    }
+    content = content.push(text(label).size(14).font(tokens::UI_MEDIUM));
+    button(vcenter(content))
+        .on_press(msg)
+        .height(40)
+        .padding([0, 16])
+        .style(flat_button(
+            if on { tokens::SEGMENT_ON } else { Color::TRANSPARENT },
+            if on { tokens::SEGMENT_ON } else { tokens::HOVER },
+            if on { tokens::TEXT } else { tokens::TEXT_SECONDARY },
+            if on { accent } else { tokens::BORDER_CONTROL },
+            tokens::RADIUS_PILL,
+        ))
+        .into()
+}
+
+/// Label on the left, current value on the right, slider underneath.
+fn value_slider<'a>(
     label: &'a str,
-    glyph: &'a str,
-    kind: TargetKind,
-    selected: bool,
-    colors: &theme::ThemeColors,
+    value: String,
+    control: impl Into<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    let fg = if selected {
-        contrast_on(accent)
-    } else {
-        hexc(&colors.text, Color::WHITE)
-    };
-    button(
+    column![
         row![
-            text(glyph).font(ICON_FONT).size(16).color(fg),
-            text(label).size(13).color(fg),
+            text(label).size(13).color(tokens::TEXT_NAV),
+            Space::new().width(Length::Fill),
+            text(value).size(13).font(tokens::MONO).color(tokens::TEXT),
         ]
-        .spacing(7)
         .align_y(Alignment::Center),
-    )
-    .on_press(Message::ToggleTarget(kind))
-    .padding([8, 12])
-    .style(segment_style(colors, selected))
+        control.into(),
+    ]
+    .spacing(6)
     .into()
+}
+
+/// Hue picker: a rainbow bar with the slider's handle riding on it.
+fn hue_slider(hue: f32) -> Element<'static, Message> {
+    let mut rainbow = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2));
+    for (i, rgb) in [0xff0000u32, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff, 0xff0000]
+        .into_iter()
+        .enumerate()
+    {
+        let c = Color::from_rgb8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
+        rainbow = rainbow.add_stop(i as f32 / 6.0, c);
+    }
+    let bar = container(
+        container(Space::new().width(Length::Fill).height(14)).style(boxed(
+            iced::Background::Gradient(rainbow.into()),
+            Color::TRANSPARENT,
+            0.0,
+            tokens::RADIUS_PILL,
+        )),
+    )
+    .padding([3, 0]);
+    let handle = slider(0.0..=360.0, hue, Message::Hue)
+        .on_release(Message::LightingCommit)
+        .height(20)
+        .style(|theme, status| {
+            let mut s = slider::default(theme, status);
+            let clear = iced::Background::Color(Color::TRANSPARENT);
+            s.rail.backgrounds = (clear, clear);
+            s.handle.shape = slider::HandleShape::Circle { radius: 9.0 };
+            s.handle.background = tokens::TEXT.into();
+            s.handle.border_width = 2.0;
+            s.handle.border_color = tokens::SURFACE;
+            s
+        });
+    stack![bar, handle].into()
+}
+
+const SWATCH_COLORS: [u32; 16] = [
+    0xFF2D2D, 0xFF7A1A, 0xFFC21A, 0xF5FF1A, 0x8CFF1A, 0x1AFF4B, 0x1AFFB0, 0x00C6FF, 0x1A8CFF,
+    0x1A2DFF, 0x8C1AFF, 0xE01AFF, 0xFF1AB4, 0xFF1A5A, 0xFFFFFF, 0x88C0D0,
+];
+
+/// Two rows of eight; the current color wears a light ring.
+fn swatches(current: (u8, u8, u8)) -> Element<'static, Message> {
+    let mut grid = column![].spacing(2);
+    for chunk in SWATCH_COLORS.chunks(8) {
+        let mut line = row![].spacing(2);
+        for &hex in chunk {
+            let rgb = ((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+            let fill = Color::from_rgb8(rgb.0, rgb.1, rgb.2);
+            let ring = if rgb == current { tokens::TEXT } else { Color::TRANSPARENT };
+            line = line.push(
+                button(
+                    container(Space::new().width(Length::Fill).height(26))
+                        .style(boxed(fill, Color::TRANSPARENT, 0.0, 6.0)),
+                )
+                .on_press(Message::Swatch(rgb))
+                .padding(3)
+                .width(Length::FillPortion(1))
+                .style(move |_, _| button::Style {
+                    border: iced::Border { radius: 9.0.into(), width: 2.0, color: ring },
+                    ..button::Style::default()
+                }),
+            );
+        }
+        grid = grid.push(line);
+    }
+    grid.into()
+}
+
+/// Hex color field (type or paste `#rrggbb`).
+fn hex_field(value: &str, accent: Color) -> Element<'_, Message> {
+    let valid = hex_to_rgb(value).is_ok();
+    text_input("#RRGGBB", value)
+        .on_input(Message::HexChanged)
+        .on_submit(Message::HexSubmit)
+        .font(tokens::MONO)
+        .size(13)
+        .padding([9, 10])
+        .width(96)
+        .style(move |theme, status| {
+            let mut s = text_input::default(theme, status);
+            s.background = tokens::INSET.into();
+            s.value = tokens::TEXT;
+            s.placeholder = tokens::TEXT_MUTED;
+            s.selection = Color { a: 0.4, ..accent };
+            s.border = iced::Border {
+                radius: 8.0.into(),
+                width: 1.0,
+                color: if valid { tokens::BORDER_CONTROL } else { tokens::WARNING },
+            };
+            s
+        })
+        .into()
 }
 
 fn canvas_view(app: &App) -> Element<'_, Message> {
@@ -1943,12 +2472,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     let controls_for = s.effect.controls();
     let streaming = app.streaming();
 
-    let header = row![
-        section_header(
-            "Canvas",
-            "Arrange devices on one effect surface — drag to move; LEDs sample the pixels under them",
-            colors,
-        ),
+    let stream_bar = row![
         Space::new().width(Length::Fill),
         checkbox(app.settings.canvas_autostart)
             .label("Start at login")
@@ -1960,6 +2484,14 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     ]
     .spacing(16)
     .align_y(Alignment::Center);
+    let header = column![
+        lighting_header(
+            "Arrange devices on one effect surface. Drag to move; LEDs take the color under them.",
+            true,
+        ),
+        stream_bar,
+    ]
+    .spacing(16);
 
     // ── the arrangement scene ──
     let scene = container(canvas_tab::scene_element(
@@ -2421,7 +2953,7 @@ fn sync_view(app: &App) -> Element<'_, Message> {
 
     scrollable(
         column![
-            section_header("Sync", "Theme integration and targeting", colors),
+            section_header("Settings", "Theme integration and targeting", colors),
             theme_card,
             hint_card,
         ]
@@ -2876,20 +3408,6 @@ fn fan_status_pill(status: cntrl_core::fan_control::FanChannelStatus) -> Element
         .into()
 }
 
-fn effect_btn(
-    lbl: &'static str,
-    id: i32,
-    active_id: i32,
-    colors: &theme::ThemeColors,
-) -> Element<'static, Message> {
-    button(text(lbl))
-        .on_press(Message::Effect(id))
-        .width(Length::Fill)
-        .padding([8, 10])
-        .style(segment_style(colors, id == active_id))
-        .into()
-}
-
 fn status_text<'a>(status: &'a str, colors: &theme::ThemeColors) -> Element<'a, Message> {
     text(status).size(13).color(muted(colors)).into()
 }
@@ -2916,80 +3434,3 @@ fn status_pill(status: cntrl_core::devices::DeviceStatus) -> Element<'static, Me
         .into()
 }
 
-const SWATCH_COLORS: [(u8, u8, u8); 16] = [
-    (255, 0, 0),     // red
-    (255, 96, 0),    // orange
-    (255, 200, 0),   // amber
-    (255, 255, 0),   // yellow
-    (128, 255, 0),   // lime
-    (0, 255, 0),     // green
-    (0, 255, 160),   // spring
-    (0, 220, 255),   // cyan
-    (0, 128, 255),   // azure
-    (0, 0, 255),     // blue
-    (128, 0, 255),   // violet
-    (200, 0, 255),   // purple
-    (255, 0, 200),   // magenta
-    (255, 0, 110),   // pink
-    (255, 255, 255), // white
-    (255, 90, 60),   // warm
-];
-
-fn swatches(current: (u8, u8, u8), colors: &theme::ThemeColors) -> Element<'static, Message> {
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    // Two rows of 8 so the whole palette is always visible in the narrow card.
-    let mut grid = column![].spacing(8);
-    for chunk in SWATCH_COLORS.chunks(8) {
-        let mut r = row![].spacing(8);
-        for &c in chunk {
-            let selected = c == current;
-            r = r.push(
-                button(Space::new().width(26).height(26))
-                    .on_press(Message::Swatch(c))
-                    .style(swatch_button_style(c, selected, accent)),
-            );
-        }
-        grid = grid.push(r);
-    }
-    grid.into()
-}
-
-/// Custom-color row: a hex text field (type/paste `#rrggbb`) + a live preview chip.
-fn hex_input_row<'a>(
-    value: &'a str,
-    current: (u8, u8, u8),
-    colors: &theme::ThemeColors,
-) -> Element<'a, Message> {
-    let valid = hex_to_rgb(value).is_ok();
-    let line = hairline(colors);
-    let field = text_input("#rrggbb", value)
-        .on_input(Message::HexChanged)
-        .on_submit(Message::HexSubmit)
-        .font(iced::Font::MONOSPACE)
-        .size(14)
-        .padding([8, 10])
-        .width(Length::Fixed(120.0))
-        .style(move |theme, status| {
-            let mut s = text_input::default(theme, status);
-            s.border = iced::Border {
-                radius: 8.0.into(),
-                width: 1.0,
-                color: if valid {
-                    line
-                } else {
-                    Color::from_rgb8(0xe0, 0x6c, 0x4c)
-                },
-            };
-            s
-        });
-    let preview = container(Space::new())
-        .width(34)
-        .height(34)
-        .style(swatch_box(current));
-    column![
-        text("Custom").size(12).color(muted(colors)),
-        row![field, preview].spacing(10).align_y(Alignment::Center),
-    ]
-    .spacing(6)
-    .into()
-}

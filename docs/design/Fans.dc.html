@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CNTRL — Fans</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0F1114}
+*{box-sizing:border-box}
+a{color:#8FDDF7}a:hover{color:#C4EEFB}
+button{font:inherit;cursor:pointer}
+select{font:inherit}
+.nav a:hover{background:#1E2329}
+</style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-wrap: wrap; background: #0F1114; color: #E8EBEE; font-family: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+<nav class="nav" aria-label="Main" style="flex: 1 1 232px; background: #14171B; border-right: 1px solid #23282E; padding: 20px 14px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px">
+<div aria-hidden="true" style="display: grid; grid-template-columns: repeat(3, 6px); gap: 3px">
+<span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .55"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .25"></span>
+<span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .55"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .55"></span>
+<span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .25"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}; opacity: .55"></span><span style="width: 6px; height: 6px; border-radius: 2px; background: {{accent}}"></span>
+</div>
+<span style="font-weight: 700; font-size: 18px; letter-spacing: .08em">CNTRL</span>
+</div>
+<button type="button" aria-label="Switch profile, current: Everyday" style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 12px; background: #1A1E23; border: 1px solid #2A3037; border-radius: 10px; color: #E8EBEE; text-align: left">
+<span style="display: flex; flex-direction: column; flex: 1"><span style="font-size: 11px; color: #8E97A2; text-transform: uppercase; letter-spacing: .08em">Profile</span><span style="font-weight: 600">Everyday</span></span>
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E97A2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9l5-5 5 5M7 15l5 5 5-5"></path></svg>
+</button>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #B4BCC6">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>Overview</a>
+<a href="Lighting.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #B4BCC6">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>Lighting</a>
+<a href="Fans.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #E8EBEE; background: #22282F; font-weight: 600">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"></circle><path d="M12 10c-1-4 0-7 3-7s3 4-1 7M14 12c4-1 7 0 7 3s-4 3-7-1M12 14c1 4 0 7-3 7s-3-4 1-7M10 12c-4 1-7 0-7-3s4-3 7 1"></path></svg>Fans</a>
+<a href="Devices.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #B4BCC6">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path></svg>Devices</a>
+<div aria-disabled="true" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; color: #6F7883">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>
+<span style="flex: 1">System</span><span style="font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid #2E343B; color: #8E97A2">Soon</span>
+</div>
+</div>
+<div style="flex: 1"></div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: #B4BCC6">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>Settings</a>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: #8E97A2; font-size: 12px"><span style="width: 8px; height: 8px; border-radius: 99px; background: #4CC38A"></span>4 devices · engine running</div>
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px 48px; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.01em">Fans</h1>
+<p style="margin: 0; color: #9AA3AE">Pick how your PC should sound. Fine-tune single fans only if you want to.</p>
+</div>
+<button type="button" role="switch" aria-checked="{{managedAria}}" onClick="{{toggleManaged}}" style="display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 6px 0 16px; border-radius: 99px; border: 1px solid #2E343B; background: #1A1E23; color: #E8EBEE">
+<span>Let CNTRL control fans</span>
+<span style="{{switchTrack}}"><span style="{{switchKnob}}"></span></span>
+</button>
+</header>
+
+<section aria-label="Fan mode" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 12px">
+<sc-for list="{{presets}}" as="p" hint-placeholder-count="4">
+<button type="button" aria-pressed="{{p.pressed}}" onClick="{{p.pick}}" style="{{p.style}}">
+<span style="display: flex; align-items: center; justify-content: space-between; width: 100%">
+<span style="font-size: 16px; font-weight: 600; color: #E8EBEE">{{p.title}}</span>
+<span style="{{p.radio}}"></span>
+</span>
+<span style="font-size: 13px; color: #9AA3AE; text-align: left">{{p.desc}}</span>
+</button>
+</sc-for>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+<section aria-labelledby="f-list" style="flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<h2 id="f-list" style="margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: #9AA3AE">Your fans</h2>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{fans}}" as="f" hint-placeholder-count="7">
+<button type="button" aria-pressed="{{f.pressed}}" onClick="{{f.pick}}" style="{{f.style}}">
+<span style="display: flex; flex-direction: column; gap: 1px; flex: 1; text-align: left; min-width: 0">
+<span style="font-weight: 600; color: #E8EBEE">{{f.name}}</span>
+<span style="font-size: 12px; color: #8E97A2; font-family: 'JetBrains Mono', ui-monospace, monospace">{{f.raw}}</span>
+</span>
+<span style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; width: 110px">
+<span style="font-family: 'JetBrains Mono', ui-monospace, monospace; color: #E8EBEE">{{f.rpm}}</span>
+<span aria-hidden="true" style="width: 100%; height: 4px; border-radius: 99px; background: #2A3037; overflow: hidden"><span style="{{f.bar}}"></span></span>
+</span>
+</button>
+</sc-for>
+</div>
+<div style="display: flex; gap: 12px; padding: 14px; border-radius: 12px; background: #2A2418; color: #F3D9A8; font-size: 13px">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2A541" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>
+<span>Motherboard fan control on this board (it8689) is experimental. If CNTRL closes, your BIOS takes over the fans again.</span>
+</div>
+</section>
+
+<section aria-labelledby="f-curve" style="flex: 999 1 520px; min-width: 0; background: #1A1E23; border: 1px solid #252A30; border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h2 id="f-curve" style="margin: 0; font-size: 20px; font-weight: 600">{{sel.name}}</h2>
+<span style="color: #9AA3AE">{{sel.summary}}</span>
+</div>
+<span style="padding: 6px 12px; border-radius: 99px; background: #22272D; font-size: 13px; color: #B4BCC6">{{modeLabel}} curve</span>
+</div>
+
+<sc-if value="{{sel.firmware}}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; padding: 16px; border-radius: 12px; background: #22272D; color: #B4BCC6">The graphics card manages its own fans. They stay off until the GPU warms up, which is normal.</p>
+</sc-if>
+<sc-if value="{{sel.curve}}" hint-placeholder-val="{{ true }}">
+<svg role="img" aria-label="{{chartLabel}}" viewBox="0 0 540 250" style="width: 100%; height: auto; display: block">
+<g stroke="#262B31" stroke-width="1">
+<line x1="40" y1="20" x2="500" y2="20"></line><line x1="40" y1="67.5" x2="500" y2="67.5"></line><line x1="40" y1="115" x2="500" y2="115"></line><line x1="40" y1="162.5" x2="500" y2="162.5"></line>
+<line x1="155" y1="20" x2="155" y2="210"></line><line x1="270" y1="20" x2="270" y2="210"></line><line x1="385" y1="20" x2="385" y2="210"></line>
+</g>
+<line x1="40" y1="210" x2="500" y2="210" stroke="#3A414A" stroke-width="1"></line>
+<g fill="#8E97A2" font-size="11" font-family="JetBrains Mono, monospace">
+<text x="32" y="24" text-anchor="end">100%</text><text x="32" y="119" text-anchor="end">50%</text><text x="32" y="214" text-anchor="end">0%</text>
+<text x="40" y="232" text-anchor="middle">20°</text><text x="155" y="232" text-anchor="middle">40°</text><text x="270" y="232" text-anchor="middle">60°</text><text x="385" y="232" text-anchor="middle">80°</text><text x="500" y="232" text-anchor="middle">100°C</text>
+</g>
+<polygon points="{{area}}" fill="{{accent}}" fill-opacity="0.12"></polygon>
+<line x1="160.75" y1="20" x2="160.75" y2="210" stroke="#E8EBEE" stroke-opacity="0.5" stroke-dasharray="3 4"></line>
+<text x="166" y="34" fill="#E8EBEE" font-size="11" font-family="JetBrains Mono, monospace">now 41°</text>
+<polyline points="{{line}}" fill="none" stroke="{{accent}}" stroke-width="2.5" stroke-linejoin="round"></polyline>
+<circle cx="{{p0.x}}" cy="{{p0.y}}" r="6" fill="#1A1E23" stroke="{{accent}}" stroke-width="2.5"></circle>
+<circle cx="{{p1.x}}" cy="{{p1.y}}" r="6" fill="#1A1E23" stroke="{{accent}}" stroke-width="2.5"></circle>
+<circle cx="{{p2.x}}" cy="{{p2.y}}" r="6" fill="#1A1E23" stroke="{{accent}}" stroke-width="2.5"></circle>
+<circle cx="{{p3.x}}" cy="{{p3.y}}" r="6" fill="#1A1E23" stroke="{{accent}}" stroke-width="2.5"></circle>
+<circle cx="{{p4.x}}" cy="{{p4.y}}" r="6" fill="#1A1E23" stroke="{{accent}}" stroke-width="2.5"></circle>
+</svg>
+<p style="margin: 0; font-size: 13px; color: #9AA3AE">{{curveHint}}</p>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 16px; padding-top: 16px; border-top: 1px solid #262B31">
+<label style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; color: #B4BCC6">Follow temperature of</span>
+<select style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #2E343B; background: #121519; color: #E8EBEE">
+<option>CPU (41°C)</option><option>Graphics card (38°C)</option><option>Whichever is hotter</option>
+</select>
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px">
+<span style="display: flex; justify-content: space-between; font-size: 13px; color: #B4BCC6"><span>Never slower than</span><span style="font-family: 'JetBrains Mono', ui-monospace, monospace; color: #E8EBEE">20%</span></span>
+<input type="range" min="0" max="60" value="20" style="width: 100%; min-height: 44px; accent-color: {{accent}}">
+</label>
+</div>
+</sc-if>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#00C6FF","options":["#00C6FF","#88C0D0","#F2A541","#C792EA"]},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { mode: 'balanced', sel: 'cpu', managed: true }; }
+  renderVals() {
+    const accent = this.props.accent ?? '#00C6FF';
+    const curves = {
+      silent: [[30, 20], [50, 25], [65, 40], [80, 70], [90, 100]],
+      balanced: [[30, 20], [50, 40], [70, 75], [85, 100], [95, 100]],
+      performance: [[30, 35], [45, 55], [60, 80], [75, 100], [90, 100]],
+      custom: [[30, 20], [45, 30], [60, 55], [75, 85], [90, 100]]
+    };
+    const meta = [
+      ['silent', 'Silent', 'Quietest. Fans ramp up late.'],
+      ['balanced', 'Balanced', 'Quiet at idle, cool under load.'],
+      ['performance', 'Performance', 'Coolest. Fans spin up early.'],
+      ['custom', 'Custom', 'Your own curve for each fan.']
+    ];
+    const mode = this.state.mode;
+    const presets = meta.map(([id, title, desc]) => {
+      const on = mode === id;
+      return { title, desc, pressed: on ? 'true' : 'false', pick: () => this.setState({ mode: id }),
+        style: 'display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 92px; padding: 16px 18px; border-radius: 14px; background: ' + (on ? '#1F252B' : '#1A1E23') + '; border: 2px solid ' + (on ? accent : '#252A30') + ';',
+        radio: 'width: 18px; height: 18px; border-radius: 99px; border: 2px solid ' + (on ? accent : '#4A525C') + '; background: ' + (on ? 'radial-gradient(circle, ' + accent + ' 0 4px, transparent 5px)' : 'transparent') + ';' };
+    });
+    const fanDefs = [
+      { id: 'cpu', name: 'CPU fan', raw: 'CPU_FAN', rpm: 721, duty: 32 },
+      { id: 'opt', name: 'CPU fan 2', raw: 'CPU_OPT', rpm: 560, duty: 32 },
+      { id: 'pump', name: 'Pump', raw: 'SYS_FAN4_PUMP', rpm: 602, duty: 32 },
+      { id: 's1', name: 'Case fan 1', raw: 'SYS_FAN1', rpm: 555, duty: 32 },
+      { id: 's2', name: 'Case fan 2', raw: 'SYS_FAN2', rpm: 598, duty: 32 },
+      { id: 's3', name: 'Case fan 3', raw: 'SYS_FAN3', rpm: 601, duty: 32 },
+      { id: 'gpu', name: 'Graphics card', raw: 'amdgpu/pwm1', rpm: 0, duty: 0, firmware: true }
+    ];
+    const fans = fanDefs.map((f) => {
+      const on = this.state.sel === f.id;
+      return { name: f.name, raw: f.raw, rpm: f.firmware ? 'Off · auto' : f.rpm + ' rpm', pressed: on ? 'true' : 'false',
+        pick: () => this.setState({ sel: f.id }),
+        style: 'display: flex; align-items: center; gap: 16px; min-height: 60px; padding: 10px 16px; border-radius: 12px; background: ' + (on ? '#22282F' : '#1A1E23') + '; border: 1px solid ' + (on ? '#3A424B' : '#252A30') + ';',
+        bar: 'display: block; height: 100%; width: ' + f.duty + '%; background: ' + accent + ';' };
+    });
+    const s = fanDefs.find((f) => f.id === this.state.sel) || fanDefs[0];
+    const pts = curves[mode].map(([t, d]) => ({ x: +(40 + (t - 20) / 80 * 460).toFixed(1), y: +(210 - d / 100 * 190).toFixed(1) }));
+    const full = [{ x: 40, y: pts[0].y }].concat(pts, [{ x: 500, y: pts[4].y }]);
+    const line = full.map((p) => p.x + ',' + p.y).join(' ');
+    const label = meta.find((m) => m[0] === mode)[1];
+    const managed = this.state.managed;
+    return {
+      accent, presets, fans,
+      managedAria: managed ? 'true' : 'false',
+      toggleManaged: () => this.setState({ managed: !managed }),
+      switchTrack: 'display: flex; align-items: center; width: 46px; height: 28px; padding: 3px; border-radius: 99px; background: ' + (managed ? accent : '#3A414A') + '; justify-content: ' + (managed ? 'flex-end' : 'flex-start') + ';',
+      switchKnob: 'width: 22px; height: 22px; border-radius: 99px; background: ' + (managed ? '#08171D' : '#C9CFD6') + ';',
+      sel: { name: s.name, firmware: !!s.firmware, curve: !s.firmware,
+        summary: s.firmware ? 'Controlled by the graphics card' : s.rpm + ' rpm right now · ' + s.duty + '% speed' },
+      modeLabel: label,
+      line, area: line + ' 500,210 40,210',
+      p0: pts[0], p1: pts[1], p2: pts[2], p3: pts[3], p4: pts[4],
+      chartLabel: label + ' fan curve: speed rises with CPU temperature',
+      curveHint: mode === 'custom' ? 'Drag a point to move it · click the line to add one · right-click a point to remove it.' : 'This is the ' + label + ' curve. Choose Custom above to drag the points yourself.'
+    };
+  }
+}
+</script>
+</body>
+</html>
