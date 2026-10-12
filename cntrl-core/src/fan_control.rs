@@ -80,7 +80,17 @@ pub struct FanChannel {
     pub experimental: bool,
 }
 
+/// A pump header never runs slower than this, whatever the mode or its floor.
+pub const PUMP_MIN_DUTY_PCT: u8 = 60;
+
 impl FanChannel {
+    /// A liquid-cooling pump header (`SYS_FAN4_PUMP`), going by the board's
+    /// name for it. Pumps keep their own curve and a high floor: a preset
+    /// tuned for quiet fans could starve the loop.
+    pub fn is_pump(&self) -> bool {
+        self.label.to_ascii_uppercase().contains("PUMP")
+    }
+
     /// Read the raw PWM duty (0..=255).
     pub fn read_pwm(&self) -> Result<u32, String> {
         read_sysfs_u32(&self.pwm_file)

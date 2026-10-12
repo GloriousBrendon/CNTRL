@@ -19,6 +19,8 @@ pub struct Settings {
     pub theme_sync_pc: bool,
     /// The daemon starts the canvas stream (saved layout) when it launches.
     pub canvas_autostart: bool,
+    /// The panel's buttons and highlights take the current lighting color.
+    pub tint_ui: bool,
 }
 
 impl Default for Settings {
@@ -29,6 +31,7 @@ impl Default for Settings {
             theme_sync_keyboard: true,
             theme_sync_pc: false,
             canvas_autostart: false,
+            tint_ui: true,
         }
     }
 }

@@ -82,6 +82,7 @@ impl StreamHandle {
             last_error: st.last_error,
             bands: st.input.audio.bands.to_vec(),
             level: st.input.audio.level,
+            effect: Some(self.shared.lock().expect("stream shared").layout.settings.effect),
         }
     }
 

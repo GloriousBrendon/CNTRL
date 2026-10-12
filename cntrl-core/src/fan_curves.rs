@@ -132,6 +132,8 @@ pub struct FanCurveConfig {
     /// Master enable for the control engine.
     pub enabled: bool,
     pub mode: FanMode,
+    /// The panel has put each fan on its default sensors once (first mode pick).
+    pub sensors_seeded: bool,
 }
 
 impl Default for FanCurveConfig {
@@ -144,6 +146,7 @@ impl Default for FanCurveConfig {
             min_change_pct: default_min_change(),
             enabled: false,
             mode: FanMode::default(),
+            sensors_seeded: false,
         }
     }
 }
@@ -156,13 +159,19 @@ impl FanCurveConfig {
     /// Evaluate a curve id to a duty percent given current smoothed temps.
     /// Returns `None` if the curve/sensor is missing or a mix cycle is detected.
     pub fn eval_curve(&self, curve_id: &str, temps: &HashMap<String, f32>) -> Option<u8> {
-        self.eval_curve_depth(curve_id, temps, 0)
+        self.eval_curve_depth(curve_id, temps, self.mode, 0)
+    }
+
+    /// Like [`eval_curve`], but always on the stored points (no preset).
+    pub fn eval_own_curve(&self, curve_id: &str, temps: &HashMap<String, f32>) -> Option<u8> {
+        self.eval_curve_depth(curve_id, temps, FanMode::Custom, 0)
     }
 
     fn eval_curve_depth(
         &self,
         curve_id: &str,
         temps: &HashMap<String, f32>,
+        mode: FanMode,
         depth: usize,
     ) -> Option<u8> {
         if depth > MAX_MIX_DEPTH {
@@ -177,13 +186,13 @@ impl FanCurveConfig {
                 if let Some(also) = also_sensor_id {
                     t = t.max(*temps.get(also)?);
                 }
-                Some(eval_graph(self.mode.preset().unwrap_or(points), t))
+                Some(eval_graph(mode.preset().unwrap_or(points), t))
             }
             CurveKind::Mix { member_ids } => {
                 let mut best = 0u8;
                 let mut any = false;
                 for m in member_ids {
-                    if let Some(d) = self.eval_curve_depth(m, temps, depth + 1) {
+                    if let Some(d) = self.eval_curve_depth(m, temps, mode, depth + 1) {
                         best = best.max(d);
                         any = true;
                     }
@@ -360,7 +369,14 @@ fn apply_assignment(
     let Some(channel) = discovery.channel(&a.channel_id) else {
         return unsupported(format!("channel {} not present", a.channel_id));
     };
-    let Some(raw_target) = cfg.eval_curve(&a.curve_id, temps) else {
+    // A pump is not part of the presets: it keeps its own curve.
+    let pump = channel.is_pump();
+    let evaluated = if pump {
+        cfg.eval_own_curve(&a.curve_id, temps)
+    } else {
+        cfg.eval_curve(&a.curve_id, temps)
+    };
+    let Some(raw_target) = evaluated else {
         let why = format!(
             "curve {} could not be evaluated (missing sensor or cycle)",
             a.curve_id
@@ -391,7 +407,8 @@ fn apply_assignment(
     };
 
     // Clamp to the assignment's duty envelope.
-    let lo = a.min_duty_pct.min(100);
+    let floor = if pump { crate::fan_control::PUMP_MIN_DUTY_PCT } else { 0 };
+    let lo = a.min_duty_pct.max(floor).min(100);
     let hi = a.max_duty_pct.min(100).max(lo);
     let target = raw_target.clamp(lo, hi);
 
@@ -618,7 +635,7 @@ fn restore_where(pick: impl Fn(&str) -> bool) -> Option<String> {
     })
 }
 
-fn restore_states(
+pub(crate) fn restore_states(
     states: &mut OriginalStates,
     discovery: &FanDiscovery,
     pick: impl Fn(&str) -> bool,
@@ -688,6 +705,69 @@ mod tests {
         assert_eq!(cfg.eval_curve("c", &temps), Some(90));
         temps.remove("gpu");
         assert_eq!(cfg.eval_curve("c", &temps), None);
+    }
+
+    #[test]
+    fn pump_keeps_its_own_curve_and_a_60_percent_floor() {
+        let root = fake_hwmon("pump");
+        let label = [("fakechip".to_string(), "pwm1".to_string(), "SYS_FAN4_PUMP".to_string())];
+        let d = crate::fan_control::discover_in(&root, &label);
+        assert!(d.channel("fakechip/pwm1").unwrap().is_pump());
+
+        // Own curve says 40% at 40°C; Silent would say 22%. Both are under the floor.
+        let mut cfg = fake_cfg();
+        cfg.mode = FanMode::Silent;
+        tick(&cfg, &d, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(60).to_string());
+
+        // Above the floor the pump follows its own curve, not the preset.
+        if let CurveKind::Graph { points, .. } = &mut cfg.curves[0].kind {
+            *points = vec![pt(30.0, 20), pt(50.0, 100)];
+        }
+        std::fs::write(root.join("hwmon0/temp1_input"), "50000\n").unwrap();
+        tick(&cfg, &d, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(100).to_string(), "Silent would give 25%");
+
+        // The same header without the pump name follows the preset.
+        let plain = crate::fan_control::discover_in(&root, &[]);
+        tick(&cfg, &plain, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(25).to_string());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// What the watchdog does after a hard kill: the engine left the fan in
+    /// manual mode, its lock vanished with the process, the fan goes back.
+    #[test]
+    fn watchdog_restores_fans_once_the_engine_is_gone() {
+        let root = fake_hwmon("watchdog");
+        let lock = std::env::temp_dir().join(format!("cntrl-wd-lock-{}", std::process::id()));
+        let engine = crate::fan_engine::acquire_lock_at(&lock).unwrap();
+        // The engine took the fan over (was: firmware mode, pwm 66) ...
+        let mut states = OriginalStates::new();
+        states.insert(
+            "fakechip/pwm1".into(),
+            OriginalPwmState { enable_value: Some(2), pwm_value: 66 },
+        );
+        std::fs::write(root.join("hwmon0/pwm1_enable"), "1\n").unwrap();
+        std::fs::write(root.join("hwmon0/pwm1"), "200\n").unwrap();
+
+        let (root2, lock2) = (root.clone(), lock.clone());
+        let watchdog = std::thread::spawn(move || {
+            crate::fan_engine::wait_for_engine_exit(&lock2).unwrap();
+            let d = crate::fan_control::discover_in(&root2, &[]);
+            restore_states(&mut states, &d, |_| true)
+        });
+        // ... and while it lives the watchdog must not touch anything.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert_eq!(read(&root, "pwm1_enable"), "1");
+
+        // The kernel drops the lock when the process dies, however it dies.
+        drop(engine);
+        let (restored, errors) = watchdog.join().unwrap();
+        assert_eq!((restored, errors.len()), (1, 0));
+        assert_eq!(read(&root, "pwm1_enable"), "2");
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_file(lock);
     }
 
     #[test]

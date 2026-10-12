@@ -22,23 +22,13 @@ use iced::widget::{
 use iced::window;
 use iced::theme::Palette;
 use iced::{
-    Alignment, Color, Element, Font, Length, Task, Theme,
+    Alignment, Color, Element, Length, Task, Theme,
 };
 use std::time::{Duration, Instant};
-
-/// Bundled Nerd Font for device-type icons (Material Design Icons glyph range).
-const NERD_FONT_BYTES: &[u8] =
-    include_bytes!("/usr/share/fonts/TTF/MesloLGSNerdFontMono-Regular.ttf");
-const ICON_FONT: Font = Font::with_name("MesloLGS Nerd Font Mono");
-
-fn icon<'a>(glyph: &'a str, size: u16, color: Color) -> Element<'a, Message> {
-    text(glyph).font(ICON_FONT).size(f32::from(size)).color(color).into()
-}
 
 pub fn run() -> iced::Result {
     iced::application(boot, update, view)
         .title("CNTRL")
-        .font(NERD_FONT_BYTES)
         .font(tokens::UI_FONT_FILES[0])
         .font(tokens::UI_FONT_FILES[1])
         .font(tokens::UI_FONT_FILES[2])
@@ -52,6 +42,10 @@ pub fn run() -> iced::Result {
                 subs.push(iced::time::every(Duration::from_millis(33)).map(|_| Message::CanvasTick));
             } else if app.tab == ShellTab::Fans {
                 subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::FanPoll));
+            }
+            // Stream edits made on other tabs still have to reach the daemon.
+            if app.tab != ShellTab::Canvas && app.canvas_dirty {
+                subs.push(iced::time::every(Duration::from_millis(50)).map(|_| Message::CanvasFlush));
             }
             // Only while a lighting change waits to be written.
             if app.apply_pending.is_some() {
@@ -77,8 +71,10 @@ fn boot() -> (App, Task<Message>) {
     // Pick up a stream the daemon is already running (autostart, or started
     // before this panel opened).
     app.on_canvas_reply(cntrl_core::ipc::canvas_request(&cntrl_core::ipc::Request::CanvasStatus));
-    app.retint();
-    (app, Task::none())
+    // The start tab loads what it shows, as if it had been clicked.
+    let start = app.tab;
+    let task = update(&mut app, Message::Tab(start));
+    (app, task)
 }
 
 fn iced_theme_from_colors(tc: &theme::ThemeColors) -> Theme {
@@ -364,6 +360,18 @@ struct App {
     apply_busy: bool,
     /// Sidebar profile list is open.
     profile_menu: bool,
+    /// Hex text for the streamed effect's selected color.
+    canvas_hex: String,
+    /// Devices screen: the card whose details are open (backend id).
+    device_open: Option<&'static str>,
+    /// Identify started the stream itself, so stopping Identify stops it too.
+    identify_owns_stream: bool,
+    /// Background service starts at login (`None`: unit not installed).
+    service_enabled: Option<bool>,
+    /// Accent in the desktop theme file, read when Settings opens.
+    desktop_accent: Option<(u8, u8, u8)>,
+    /// Hex of the last manual theme apply in this session.
+    theme_last_applied: Option<String>,
     /// Gallery stills of the streamed effects (rendered once).
     fx_thumbs: Vec<(EffectKind, iced::widget::image::Handle)>,
     /// The background daemon answers on its socket.
@@ -471,6 +479,12 @@ impl App {
             apply_busy: false,
             profile_menu: false,
             fx_thumbs: stream_thumbs(),
+            canvas_hex: String::new(),
+            device_open: None,
+            identify_owns_stream: false,
+            service_enabled: None,
+            desktop_accent: None,
+            theme_last_applied: None,
             engine_running: cntrl_core::ipc::socket_path().exists(),
             tab: ShellTab::from_env(),
             effect_id,
@@ -512,7 +526,8 @@ impl App {
     /// "accent"). Too dark to read on the dark UI: the default accent.
     fn retint(&mut self) {
         let c = self.current_color;
-        let accent = if c.0.max(c.1).max(c.2) < 70 { tokens::DEFAULT_ACCENT } else { c };
+        let dark = c.0.max(c.1).max(c.2) < 70;
+        let accent = if dark || !self.settings.tint_ui { tokens::DEFAULT_ACCENT } else { c };
         let accent = rgb_to_hex(accent);
         if self.colors.accent != accent || self.colors.bg1 != tokens::BG_HEX {
             self.colors = theme::ThemeColors {
@@ -566,6 +581,14 @@ impl App {
     ) {
         match reply {
             Ok(Some(st)) if st.running => {
+                // The stream may run another effect than the saved layout
+                // (`cntrl canvas --effect`): show what is really running.
+                if let Some(effect) = st.effect {
+                    if effect != self.canvas_layout.settings.effect && !self.canvas_dirty {
+                        self.canvas_layout.settings.set_effect(effect);
+                        self.select_canvas_color(0);
+                    }
+                }
                 self.canvas_input = st.input();
                 self.canvas_remote = true;
                 self.canvas_remote_t0 = std::time::Instant::now()
@@ -608,7 +631,22 @@ impl App {
         self.canvas_color_idx = idx.min(palette.len().saturating_sub(1));
         if let Some(c) = palette.get(self.canvas_color_idx) {
             self.canvas_hsl = rgb_to_hsl_f32(c[0], c[1], c[2]);
+            self.canvas_hex = rgb_to_hex((c[0], c[1], c[2]));
         }
+    }
+
+    /// Send pending edits to the daemon's stream, or ask how it is doing.
+    fn exchange_with_daemon(&mut self) {
+        use cntrl_core::ipc::{canvas_request, Request};
+        let req = if std::mem::take(&mut self.canvas_dirty) {
+            Request::CanvasUpdate {
+                layout: self.canvas_layout.clone(),
+                identify: self.canvas_identify.then(|| self.canvas_selected.clone()).flatten(),
+            }
+        } else {
+            Request::CanvasStatus
+        };
+        self.on_canvas_reply(canvas_request(&req));
     }
 
     /// Re-scan hwmon and snapshot its live values for the Fans tab.
@@ -685,6 +723,19 @@ pub(crate) enum Message {
     LightingStream(EffectKind),
     ToggleAllTargets,
     ProfileMenu,
+    /// Push stream edits to the daemon (ticks only while some are pending).
+    CanvasFlush,
+    CanvasHexChanged(String),
+    CanvasHexSubmit,
+    /// Light one kind of device alone (toggle).
+    DeviceIdentify(TargetKind),
+    /// Open / close a device card's details (backend id).
+    DeviceDetails(&'static str),
+    OpenUrl(&'static str),
+    /// Background service: start at login / run now.
+    ServiceAutostart(bool),
+    ServiceRun(bool),
+    ToggleTintUi(bool),
     Slot(u8),
     ToggleTarget(TargetKind),
     RefreshDevices,
@@ -777,6 +828,11 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 app.canvas_screen = None; // no preview, no grabbing
             }
             app.engine_running = cntrl_core::ipc::socket_path().exists();
+            // Off the Layout tab nothing else polls: keep the gallery's
+            // selection in step with what the daemon is streaming.
+            if app.tab != ShellTab::Canvas && app.canvas_stream.is_none() && app.engine_running {
+                app.exchange_with_daemon();
+            }
             Task::none()
         }
         Message::Tab(t) => {
@@ -788,6 +844,10 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 // Pick up devices plugged in or removed since the last look.
                 // (Not while streaming: probing would share the buses with it.)
                 app.canvas_layout.mark_present(&core_canvas::absent_backends());
+            }
+            if t == ShellTab::Sync {
+                app.service_enabled = service_enabled();
+                app.desktop_accent = cntrl_core::theme_sync::current_theme_color().ok();
             }
             if t == ShellTab::Fans {
                 app.refresh_fans();
@@ -827,6 +887,78 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             } else {
                 Task::done(Message::CanvasStreamToggle)
             }
+        }
+        Message::CanvasFlush => {
+            app.exchange_with_daemon();
+            Task::none()
+        }
+        Message::CanvasHexChanged(text) => {
+            app.canvas_hex = text;
+            match hex_to_rgb(&app.canvas_hex) {
+                Ok(rgb) => {
+                    // Keep what was typed (case, missing '#') while it is valid.
+                    let typed = app.canvas_hex.clone();
+                    let task = update_inner(app, Message::CanvasColorSet(rgb, false));
+                    app.canvas_hex = typed;
+                    task
+                }
+                Err(_) => Task::none(),
+            }
+        }
+        Message::CanvasHexSubmit => {
+            if let Ok(rgb) = hex_to_rgb(&app.canvas_hex) {
+                return update_inner(app, Message::CanvasColorSet(rgb, true));
+            }
+            Task::none()
+        }
+        Message::DeviceIdentify(kind) => {
+            let first = layout_ids(app, kind).first().map(|id| id.to_string());
+            let on = app.canvas_identify && app.canvas_selected == first;
+            if on {
+                app.canvas_identify = false;
+                app.sync_stream();
+                if std::mem::take(&mut app.identify_owns_stream) && app.streaming() {
+                    return Task::done(Message::CanvasStreamToggle);
+                }
+            } else if first.is_some() {
+                app.canvas_selected = first;
+                app.canvas_identify = true;
+                if app.streaming() {
+                    app.sync_stream();
+                } else {
+                    // No stream yet: run one for the duration of Identify. Its
+                    // first update (next flush) carries the identify request.
+                    app.identify_owns_stream = true;
+                    app.canvas_dirty = true;
+                    return Task::done(Message::CanvasStreamToggle);
+                }
+            }
+            Task::none()
+        }
+        Message::DeviceDetails(id) => {
+            app.device_open = (app.device_open != Some(id)).then_some(id);
+            Task::none()
+        }
+        Message::OpenUrl(url) => {
+            if let Err(e) = std::process::Command::new("xdg-open").arg(url).spawn() {
+                app.status = format!("Could not open {url}: {e}");
+            }
+            Task::none()
+        }
+        Message::ServiceAutostart(on) => {
+            systemctl(&[if on { "enable" } else { "disable" }, DAEMON_UNIT]);
+            app.service_enabled = service_enabled();
+            Task::none()
+        }
+        Message::ServiceRun(on) => {
+            systemctl(&[if on { "start" } else { "stop" }, DAEMON_UNIT]);
+            app.engine_running = on;
+            Task::none()
+        }
+        Message::ToggleTintUi(on) => {
+            app.settings.tint_ui = on;
+            persist_settings(app);
+            Task::none()
         }
         Message::ToggleAllTargets => {
             let all = app.all_targets_on();
@@ -937,7 +1069,9 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::RefreshDevices => {
             app.devices = cntrl_core::devices::enumerate();
-            app.status = "Devices refreshed".into();
+            if !app.streaming() {
+                app.canvas_layout.mark_present(&core_canvas::absent_backends());
+            }
             Task::none()
         }
         Message::ToggleThemeSync(v) => {
@@ -974,10 +1108,14 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             )
         }
         Message::ThemeApplied(result) => {
-            app.status = match result {
-                Ok((r, g, b)) => format!("Theme applied: #{r:02x}{g:02x}{b:02x}"),
-                Err(e) => format!("Theme sync: {e}"),
-            };
+            match result {
+                Ok(rgb) => {
+                    app.status.clear();
+                    app.desktop_accent = Some(rgb);
+                    app.theme_last_applied = Some(rgb_to_hex(rgb).to_uppercase());
+                }
+                Err(e) => app.status = format!("Theme sync: {e}"),
+            }
             Task::none()
         }
         Message::CanvasTick => {
@@ -1007,19 +1145,7 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             app.canvas_ticks = app.canvas_ticks.wrapping_add(1);
             let follow = app.canvas_layout.settings.needs_audio();
             if app.canvas_remote && (app.canvas_dirty || follow || app.canvas_ticks % 15 == 0) {
-                use cntrl_core::ipc::{canvas_request, Request};
-                let req = if std::mem::take(&mut app.canvas_dirty) {
-                    Request::CanvasUpdate {
-                        layout: app.canvas_layout.clone(),
-                        identify: app
-                            .canvas_identify
-                            .then(|| app.canvas_selected.clone())
-                            .flatten(),
-                    }
-                } else {
-                    Request::CanvasStatus
-                };
-                app.on_canvas_reply(canvas_request(&req));
+                app.exchange_with_daemon();
             }
             if !app.streaming() {
                 // Nothing is capturing sound: preview audio effects in silence.
@@ -1049,6 +1175,7 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 *c = [r, g, b];
             }
             app.canvas_hsl = rgb_to_hsl_f32(r, g, b);
+            app.canvas_hex = rgb_to_hex((r, g, b));
             app.sync_stream();
             if save {
                 app.save_canvas_layout();
@@ -1166,7 +1293,9 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                     app.canvas_status = "Stream starting… (no daemon: stops with this window)".into();
                 } else {
                     app.canvas_status = "Stream starting…".into();
+                    let pending = app.canvas_dirty;
                     app.on_canvas_reply(reply);
+                    app.canvas_dirty = pending && app.canvas_remote;
                 }
             }
             Task::none()
@@ -1327,23 +1456,54 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::FanSetMode(mode) => {
             app.fan_curve_cfg.mode = mode;
-            // First use: a mode is meant for every fan, so start following the
-            // CPU on each motherboard header. Later picks leave fans alone
-            // that were handed back to the BIOS on purpose.
-            if app.fan_curve_cfg.assignments.iter().all(|a| a.channel_id.starts_with("amdgpu")) {
+            // First mode ever picked: put every motherboard fan on sensible
+            // sensors. CPU cooler and pump follow the CPU; case fans follow the
+            // hotter of CPU and graphics card. Done once, so later changes
+            // (other sensors, fans handed back to the BIOS) stay as they are.
+            if !app.fan_curve_cfg.sensors_seeded {
                 use cntrl_core::fan_control::FanChannelStatus::Controllable;
-                let todo: Vec<(String, String)> = app
+                use cntrl_core::fan_curves::CurveKind;
+                let gpu = app
+                    .fan_discovery
+                    .sensors
+                    .iter()
+                    .find(|s| s.id.starts_with("amdgpu/") && s.label == "edge")
+                    .or_else(|| app.fan_discovery.sensors.iter().find(|s| s.chip == "amdgpu"))
+                    .map(|s| s.id.clone());
+                // (channel, CPU sensor, also follows the GPU, is a pump)
+                let todo: Vec<(String, String, bool, bool)> = app
                     .fan_discovery
                     .channels
                     .iter()
                     .filter(|c| c.chip != "amdgpu" && c.status == Controllable)
-                    .filter_map(|c| Some((c.id.clone(), default_sensor_for(app, &c.id)?)))
+                    .filter_map(|c| {
+                        let label = c.label.to_ascii_uppercase();
+                        let cooler = c.is_pump() || label == "CPU_FAN" || label == "CPU_OPT";
+                        Some((c.id.clone(), default_sensor_for(app, &c.id)?, !cooler, c.is_pump()))
+                    })
                     .collect();
                 let keep = app.fan_selected.clone();
-                for (channel, sensor) in todo {
-                    let _ = update_inner(app, Message::FanCreateAssignment(channel, sensor));
+                for (channel, cpu, case_fan, pump) in todo {
+                    if app.assignment_for(&channel).is_none() {
+                        let _ = update_inner(app, Message::FanCreateAssignment(channel.clone(), cpu.clone()));
+                    }
+                    let curve_id = App::curve_id_for(&channel);
+                    if let Some(c) = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id) {
+                        if let CurveKind::Graph { sensor_id, also_sensor_id, .. } = &mut c.kind {
+                            *sensor_id = cpu;
+                            *also_sensor_id = if case_fan { gpu.clone() } else { None };
+                        }
+                    }
+                    if pump {
+                        let floor = cntrl_core::fan_control::PUMP_MIN_DUTY_PCT;
+                        if let Some(a) = app.fan_curve_cfg.assignments.iter_mut().find(|a| a.channel_id == channel) {
+                            a.min_duty_pct = a.min_duty_pct.max(floor);
+                            a.max_duty_pct = a.max_duty_pct.max(floor);
+                        }
+                    }
                 }
                 app.fan_selected = keep;
+                app.fan_curve_cfg.sensors_seeded = true;
             }
             app.save_fan_cfg();
             Task::none()
@@ -1558,6 +1718,13 @@ const ICON_SETTINGS: &[u8] = include_bytes!("../../resources/icons/settings.svg"
 const ICON_CHECK: &[u8] = include_bytes!("../../resources/icons/check.svg");
 const ICON_UNFOLD: &[u8] = include_bytes!("../../resources/icons/chevrons-up-down.svg");
 const ICON_WARNING: &[u8] = include_bytes!("../../resources/icons/triangle-alert.svg");
+const ICON_KEYBOARD: &[u8] = include_bytes!("../../resources/icons/keyboard.svg");
+const ICON_BOARD: &[u8] = include_bytes!("../../resources/icons/circuit-board.svg");
+const ICON_GPU: &[u8] = include_bytes!("../../resources/icons/gpu.svg");
+const ICON_RAM: &[u8] = include_bytes!("../../resources/icons/memory-stick.svg");
+const ICON_REFRESH: &[u8] = include_bytes!("../../resources/icons/refresh-cw.svg");
+const ICON_CHEVRON_DOWN: &[u8] = include_bytes!("../../resources/icons/chevron-down.svg");
+const ICON_CHEVRON_UP: &[u8] = include_bytes!("../../resources/icons/chevron-up.svg");
 
 /// A Lucide icon drawn `size` px square in `color`.
 fn lucide(bytes: &'static [u8], size: f32, color: Color) -> Element<'static, Message> {
@@ -1858,20 +2025,6 @@ fn labeled_slider_released<'a>(
         control = control.on_release(msg);
     }
     column![head, control].spacing(5).into()
-}
-
-/// Page title + muted caption.
-fn section_header<'a>(
-    title: &'a str,
-    caption: impl Into<String>,
-    colors: &theme::ThemeColors,
-) -> Element<'a, Message> {
-    column![
-        text(title).size(26),
-        text(caption.into()).size(13).color(muted(colors)),
-    ]
-    .spacing(3)
-    .into()
 }
 
 /// Small card section label (uppercased, muted).
@@ -2274,7 +2427,7 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
                     20.0,
                     6.0
                 ),
-                hex_field(&app.hex_input, accent),
+                hex_field(&app.hex_input, accent, Message::HexChanged, Message::HexSubmit),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -2309,6 +2462,12 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
                 );
             }
             let selected = s.palette.get(app.canvas_color_idx).map(|c| (c[0], c[1], c[2]));
+            chips = chips.push(Space::new().width(2)).push(hex_field(
+                &app.canvas_hex,
+                accent,
+                Message::CanvasHexChanged,
+                Message::CanvasHexSubmit,
+            ));
             column![
                 chips,
                 swatches(selected, |rgb| Message::CanvasColorSet(rgb, true)),
@@ -2561,11 +2720,16 @@ fn swatches<'a>(
 }
 
 /// Hex color field (type or paste `#rrggbb`).
-fn hex_field(value: &str, accent: Color) -> Element<'_, Message> {
+fn hex_field<'a>(
+    value: &'a str,
+    accent: Color,
+    on_input: impl Fn(String) -> Message + 'a,
+    on_submit: Message,
+) -> Element<'a, Message> {
     let valid = hex_to_rgb(value).is_ok();
     text_input("#RRGGBB", value)
-        .on_input(Message::HexChanged)
-        .on_submit(Message::HexSubmit)
+        .on_input(on_input)
+        .on_submit(on_submit)
         .font(tokens::MONO)
         .size(13)
         .padding([9, 10])
@@ -2973,137 +3137,515 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
     column![header, scene, controls].spacing(14).into()
 }
 
+/// On/off switch from the handoff (52×32). `None` draws it disabled.
+fn switch<'a>(on: bool, accent: Color, msg: Option<Message>) -> Element<'a, Message> {
+    let live = msg.is_some();
+    let knob = if on { tokens::ON_ACCENT } else { Color::from_rgb8(0xC9, 0xCF, 0xD6) };
+    let track = if on { accent } else { Color::from_rgb8(0x3A, 0x41, 0x4A) };
+    let fade = |c: Color| if live { c } else { Color { a: 0.35, ..c } };
+    button(
+        container(shape(fade(knob), 24.0, tokens::RADIUS_PILL))
+            .width(52)
+            .height(32)
+            .padding(4)
+            .align_x(if on { Alignment::End } else { Alignment::Start })
+            .style(boxed(fade(track), Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL)),
+    )
+    .on_press_maybe(msg)
+    .padding(0)
+    .style(|_, _| button::Style::default())
+    .into()
+}
+
+/// Outlined button used for secondary actions on the redesigned screens.
+fn outline_button<'a>(
+    content: impl Into<Element<'a, Message>>,
+    msg: Message,
+) -> iced::widget::Button<'a, Message> {
+    button(vcenter(content))
+        .on_press(msg)
+        .height(tokens::TARGET)
+        .padding([0, 18])
+        .style(flat_button(
+            tokens::SURFACE,
+            tokens::HOVER,
+            tokens::TEXT,
+            tokens::BORDER_CONTROL,
+            tokens::RADIUS_CONTROL,
+        ))
+}
+
+fn systemctl(args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("systemctl").arg("--user").args(args).output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+const DAEMON_UNIT: &str = "cntrl-daemon.service";
+
+/// Does the background service start at login? `None`: it is not installed.
+fn service_enabled() -> Option<bool> {
+    match systemctl(&["is-enabled", DAEMON_UNIT])?.as_str() {
+        "enabled" => Some(true),
+        "disabled" => Some(false),
+        _ => None,
+    }
+}
+
 fn sync_view(app: &App) -> Element<'_, Message> {
-    let colors = &app.colors;
+    let accent = app.accent();
     let s = &app.settings;
 
-    let theme_card = container(
+    /// One settings line: label, explanation, and a switch (or a "Soon" pill).
+    fn line<'a>(
+        label: &'a str,
+        desc: &'a str,
+        control: Element<'a, Message>,
+    ) -> Element<'a, Message> {
+        let mut words = column![text(label).size(14).font(tokens::UI_MEDIUM)].spacing(2);
+        if !desc.is_empty() {
+            words = words.push(text(desc).size(13).color(tokens::TEXT_SECONDARY));
+        }
         column![
-            card_label("THEME SYNC", colors),
-            text("Follows ~/.config/themes/active/colors.conf — its accent drives the lighting.")
-                .size(13)
-                .color(muted(colors)),
-            checkbox(s.theme_sync_enabled)
-                .label("Auto-apply when the theme changes (requires `cntrl daemon` running)")
-                .on_toggle(Message::ToggleThemeSync),
-            Space::new().height(2),
-            text("Apply to").size(12).color(muted(colors)),
-            row![
-                checkbox(s.theme_sync_keyboard)
-                    .label("Keyboard")
-                    .on_toggle(Message::ToggleThemeSyncKeyboard),
-                checkbox(s.theme_sync_pc)
-                    .label("PC RGB")
-                    .on_toggle(Message::ToggleThemeSyncPc),
-            ]
-            .spacing(24),
-            Space::new().height(4),
-            row![
-                button(text("Apply theme now"))
-                    .on_press(Message::ApplyThemeNow)
-                    .padding([10, 22])
-                    .style(accent_button_style(colors)),
-                status_text(&app.status, colors),
-            ]
-            .spacing(14)
-            .align_y(Alignment::Center),
+            container(Space::new().height(1).width(Length::Fill)).style(boxed(
+                tokens::RAISED,
+                Color::TRANSPARENT,
+                0.0,
+                0.0
+            )),
+            container(row![words.width(Length::Fill), control].spacing(20).align_y(Alignment::Center))
+                .padding([16, 22]),
         ]
-        .spacing(12),
-    )
-    .padding(20)
-    .width(Length::Fill)
-    .style(card(colors));
+        .into()
+    }
+    fn section<'a>(title: &'a str, lines: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+        let head = container(
+            text(title).size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY),
+        )
+        .padding(iced::Padding { top: 18.0, right: 22.0, bottom: 6.0, left: 22.0 });
+        let mut rows = column![head];
+        for l in lines {
+            rows = rows.push(l);
+        }
+        container(rows)
+            .width(Length::Fill)
+            .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD))
+            .into()
+    }
 
-    let hint_card = container(
-        column![
-            card_label("PER-DEVICE COLOR", colors),
-            text("Pick which components each Apply writes to on the Lighting tab — \
-                  e.g. select only RAM to recolor just the memory, then keyboard for a different shade.")
-                .size(13)
-                .color(muted(colors)),
-        ]
-        .spacing(8),
-    )
-    .padding(20)
-    .width(Length::Fill)
-    .style(card(colors));
+    // The service switches need the systemd user unit from scripts/install.sh.
+    let installed = app.service_enabled.is_some();
+    let no_unit = "Needs the background service: run scripts/install.sh with INSTALL_SYSTEMD=1.";
+    let soon: Element<'_, Message> = container(text("Soon").size(11).color(tokens::TEXT_MUTED))
+        .padding([2, 8])
+        .style(boxed(Color::TRANSPARENT, tokens::BORDER_CONTROL, 1.0, tokens::RADIUS_PILL))
+        .into();
+    let startup = section(
+        "STARTUP",
+        vec![
+            line(
+                "Start when I log in",
+                if installed {
+                    "Restores your lighting and fan curves as soon as the desktop loads."
+                } else {
+                    no_unit
+                },
+                switch(
+                    app.service_enabled == Some(true),
+                    accent,
+                    installed.then_some(Message::ServiceAutostart(app.service_enabled != Some(true))),
+                ),
+            ),
+            line(
+                "Keep running in the background",
+                if installed {
+                    "Needed for animated and reactive effects, theme sync and fan curves. \
+                     Closing the window keeps it running."
+                } else {
+                    no_unit
+                },
+                switch(
+                    app.engine_running,
+                    accent,
+                    installed.then_some(Message::ServiceRun(!app.engine_running)),
+                ),
+            ),
+            line("Show in the system tray", "Quick access to profiles and lights off.", soon),
+        ],
+    );
+    let theme = section(
+        "THEME SYNC",
+        vec![
+            line(
+                "Match my desktop theme",
+                "When your desktop accent changes, your lighting changes with it.",
+                switch(s.theme_sync_enabled, accent, Some(Message::ToggleThemeSync(!s.theme_sync_enabled))),
+            ),
+            line(
+                "Include keyboard",
+                "",
+                switch(
+                    s.theme_sync_keyboard,
+                    accent,
+                    Some(Message::ToggleThemeSyncKeyboard(!s.theme_sync_keyboard)),
+                ),
+            ),
+            line(
+                "Include PC lighting",
+                "Fans, motherboard, graphics card and RAM.",
+                switch(s.theme_sync_pc, accent, Some(Message::ToggleThemeSyncPc(!s.theme_sync_pc))),
+            ),
+        ],
+    );
+    let appearance = section(
+        "APPEARANCE",
+        vec![line(
+            "Tint the app with my lighting color",
+            "Buttons and highlights in CNTRL use your current lighting color.",
+            switch(s.tint_ui, accent, Some(Message::ToggleTintUi(!s.tint_ui))),
+        )],
+    );
 
-    scrollable(
-        column![
-            section_header("Settings", "Theme integration and targeting", colors),
-            theme_card,
-            hint_card,
+    // ── desktop accent: where it comes from, and a manual apply ──
+    let swatch = match app.desktop_accent {
+        Some((r, g, b)) => Color::from_rgb8(r, g, b),
+        None => tokens::RAISED,
+    };
+    let mut source = row![
+        text("From ").size(13).color(tokens::TEXT_SECONDARY),
+        text(cntrl_core::theme::theme_file_path().display().to_string())
+            .size(13)
+            .font(tokens::MONO)
+            .color(Color::from_rgb8(0xC9, 0xCF, 0xD6)),
+    ];
+    match (&app.theme_last_applied, app.desktop_accent) {
+        (Some(hex), _) => {
+            source = source
+                .push(text(" · last applied ").size(13).color(tokens::TEXT_SECONDARY))
+                .push(text(hex.clone()).size(13).font(tokens::MONO).color(Color::from_rgb8(0xC9, 0xCF, 0xD6)));
+        }
+        (None, None) => {
+            source = source.push(text(" · no accent found there").size(13).color(tokens::TEXT_SECONDARY));
+        }
+        (None, Some(_)) => {}
+    }
+    let mut accent_words =
+        column![text("Desktop accent").size(14).font(tokens::UI_MEDIUM), source.wrap()].spacing(2);
+    if !app.status.is_empty() {
+        accent_words = accent_words.push(text(app.status.clone()).size(13).color(tokens::WARNING));
+    }
+    let accent_card = container(
+        row![
+            shape(swatch, 44.0, tokens::RADIUS_TILE),
+            accent_words.width(Length::Fill),
+            button(vcenter(text("Apply now").size(14).font(tokens::UI_SEMIBOLD)))
+                .on_press(Message::ApplyThemeNow)
+                .height(tokens::TARGET)
+                .padding([0, 18])
+                .style(flat_button(
+                    accent,
+                    lerp_color(accent, Color::WHITE, 0.12),
+                    tokens::ON_ACCENT,
+                    Color::TRANSPARENT,
+                    tokens::RADIUS_CONTROL,
+                )),
         ]
-        .spacing(20),
+        .spacing(16)
+        .align_y(Alignment::Center),
     )
-    .height(Length::Fill)
+    .padding([18, 22])
+    .width(Length::Fill)
+    .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD));
+
+    let about = container(
+        row![
+            column![
+                text(concat!("CNTRL ", env!("CARGO_PKG_VERSION"))).size(14).font(tokens::UI_SEMIBOLD),
+                text(concat!("Free and open source · ", env!("CARGO_PKG_LICENSE")))
+                    .size(13)
+                    .color(tokens::TEXT_SECONDARY),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            outline_button(text("Source code").size(14), Message::OpenUrl(env!("CARGO_PKG_REPOSITORY"))),
+            outline_button(
+                text("Report a problem").size(14),
+                Message::OpenUrl(concat!(env!("CARGO_PKG_REPOSITORY"), "/issues")),
+            ),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
+    )
+    .padding(iced::Padding { top: 4.0, right: 4.0, bottom: 0.0, left: 4.0 });
+
+    column![
+        page_title("Settings", "How CNTRL starts, runs and fits in with your desktop."),
+        scrollable(
+            container(column![startup, theme, appearance, accent_card, about].spacing(20))
+                .max_width(860)
+        )
+        .height(Length::Fill),
+    ]
+    .spacing(24)
     .into()
+}
+
+/// The layout device ids that belong to one kind of hardware.
+fn layout_ids(app: &App, kind: TargetKind) -> Vec<&str> {
+    app.canvas_layout
+        .devices
+        .iter()
+        .filter(|d| d.present)
+        .map(|d| d.id.as_str())
+        .filter(|id| match kind {
+            TargetKind::Keyboard => *id == core_canvas::DEV_KEYBOARD,
+            TargetKind::Gpu => *id == core_canvas::DEV_GPU,
+            TargetKind::Corsair => id.starts_with("ram"),
+            TargetKind::Ite => {
+                id.starts_with("dled") || id.starts_with("mbzone") || *id == core_canvas::DEV_RGB12V
+            }
+        })
+        .collect()
+}
+
+/// What the device is made of, as short pills ("Header 2 · 3 fans × 8 LEDs").
+fn device_zones(app: &App, kind: TargetKind) -> Vec<String> {
+    use cntrl_core::canvas::SegmentKind;
+    let ids = layout_ids(app, kind);
+    match kind {
+        TargetKind::Keyboard => {
+            let keys = app
+                .canvas_layout
+                .spec(core_canvas::DEV_KEYBOARD)
+                .map_or(0, |s| s.led_positions.len());
+            vec![format!("{keys} key LEDs"), "4 onboard profiles".into()]
+        }
+        TargetKind::Gpu => vec!["1 zone".into()],
+        TargetKind::Corsair => (1..=ids.len()).map(|n| format!("Module {n}")).collect(),
+        TargetKind::Ite => {
+            let mut zones = Vec::new();
+            for (n, header) in
+                [core_canvas::CHAIN_DLED1, core_canvas::CHAIN_DLED2].into_iter().enumerate()
+            {
+                let segs = app.canvas_layout.chains.header(header);
+                let fans: Vec<u8> =
+                    segs.iter().filter(|s| s.kind == SegmentKind::Fan).map(|s| s.leds).collect();
+                let strip: u32 = segs
+                    .iter()
+                    .filter(|s| s.kind == SegmentKind::Strip)
+                    .map(|s| u32::from(s.leds))
+                    .sum();
+                let mut parts = Vec::new();
+                match fans.as_slice() {
+                    [] => {}
+                    [one] => parts.push(format!("1 fan × {one} LEDs")),
+                    [first, rest @ ..] if rest.iter().all(|l| l == first) => {
+                        parts.push(format!("{} fans × {first} LEDs", fans.len()))
+                    }
+                    _ => parts.push(format!("{} fans", fans.len())),
+                }
+                if strip > 0 {
+                    parts.push(format!("{strip}-LED strip"));
+                }
+                let what = if parts.is_empty() { "empty".to_string() } else { parts.join(" + ") };
+                zones.push(format!("Header {} · {what}", n + 1));
+            }
+            if ids.contains(&core_canvas::DEV_RGB12V) {
+                zones.push("12 V strip".into());
+            }
+            let board: Vec<&str> =
+                ids.iter().filter_map(|id| id.strip_prefix("mbzone")).collect();
+            if !board.is_empty() {
+                zones.push(format!("Board zones {}", board.join(", ")));
+            }
+            zones
+        }
+    }
 }
 
 fn devices_view(app: &App) -> Element<'_, Message> {
     use cntrl_core::devices::DeviceStatus;
-    let colors = &app.colors;
-
     let header = row![
-        section_header("Devices", "Detected natively — no external tools", colors),
+        page_title("Devices", "Found automatically. No extra drivers or tools needed."),
         Space::new().width(Length::Fill),
-        button(text("Refresh"))
-            .on_press(Message::RefreshDevices)
-            .padding([9, 18])
-            .style(segment_style(colors, false)),
-    ]
-    .align_y(Alignment::Center);
-
-    let mut col = column![header].spacing(14);
-
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    for d in &app.devices {
-        // Subtitle: "kind · backend · usb-id" (usb-id only for HID devices).
-        let mut subtitle = format!("{} · {}", d.kind.label(), d.backend_id);
-        if d.vid != 0 {
-            subtitle.push_str(&format!(" · {}", d.usb_id()));
-        }
-        let card = container(
+        outline_button(
             row![
-                // Device-type icon in the theme accent (neutral — not status).
-                icon(d.kind.icon(), 30, accent),
-                column![
-                    row![
-                        text(d.name.clone()).size(16),
-                        Space::new().width(Length::Fill),
-                        status_pill(d.status),
-                    ]
-                    .align_y(Alignment::Center),
-                    text(subtitle).size(12).color(muted(colors)),
-                    text(d.detail.clone()).size(11).color(muted(colors)),
-                ]
-                .spacing(4),
+                lucide(ICON_REFRESH, 16.0, tokens::TEXT),
+                text("Scan again").size(14).font(tokens::UI_MEDIUM),
             ]
-            .spacing(16)
+            .spacing(8)
             .align_y(Alignment::Center),
-        )
-        .padding(16)
-        .width(Length::Fill)
-        .style(card(colors));
-        col = col.push(card);
-    }
+            Message::RefreshDevices,
+        ),
+    ]
+    .spacing(16)
+    .align_y(Alignment::End);
 
-    if app
-        .devices
-        .iter()
-        .any(|d| d.status == DeviceStatus::Blocked)
-    {
-        col = col.push(
-            text(
-                "Some devices are permission-blocked. Install the udev rule \
-                 (packaging/udev) and replug — see README.",
-            )
-            .size(12)
-            .color(muted(colors)),
+    let mut cards = column![].spacing(12);
+    for d in &app.devices {
+        let kind = TargetKind::from_device_kind(d.kind);
+        let (glyph, what, summary) = match kind {
+            TargetKind::Keyboard => (ICON_KEYBOARD, "Keyboard", "per-key RGB".to_string()),
+            TargetKind::Ite => (ICON_BOARD, "Motherboard", "fans and board lighting".to_string()),
+            TargetKind::Gpu => (ICON_GPU, "Graphics card", "single zone".to_string()),
+            TargetKind::Corsair => {
+                let n = layout_ids(app, kind).len();
+                (ICON_RAM, "Memory", format!("{n} module{}", if n == 1 { "" } else { "s" }))
+            }
+        };
+        let (dot, tone) = match d.status {
+            DeviceStatus::Ready => (tokens::SUCCESS, Color::from_rgb8(0x7D, 0xD8, 0xA9)),
+            DeviceStatus::Blocked => (tokens::WARNING, tokens::WARNING),
+            DeviceStatus::Absent => (tokens::TEXT_DISABLED, tokens::TEXT_MUTED),
+        };
+        let open = app.device_open == Some(d.backend_id);
+        let identifying = app.canvas_identify
+            && app
+                .canvas_selected
+                .as_deref()
+                .is_some_and(|id| layout_ids(app, kind).contains(&id));
+
+        let mut top = row![
+            container(lucide(glyph, 24.0, tokens::TEXT_NAV))
+                .center(48)
+                .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE)),
+            column![
+                text(d.name.clone()).size(16).font(tokens::UI_SEMIBOLD),
+                text(format!("{what} · {summary}")).size(14).color(tokens::TEXT_SECONDARY),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            row![shape(dot, 7.0, tokens::RADIUS_PILL), text(d.status.label()).size(13).color(tone)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center);
+        // Identify lights this device alone, through the background stream.
+        if d.status == DeviceStatus::Ready && !layout_ids(app, kind).is_empty() {
+            top = top.push(
+                button(vcenter(text(if identifying { "Stop" } else { "Identify" }).size(14)))
+                    .on_press(Message::DeviceIdentify(kind))
+                    .height(40)
+                    .padding([0, 14])
+                    .style(flat_button(
+                        if identifying { tokens::SEGMENT_ON } else { Color::TRANSPARENT },
+                        tokens::HOVER,
+                        tokens::TEXT,
+                        tokens::BORDER_CONTROL,
+                        9.0,
+                    )),
+            );
+        }
+        top = top.push(
+            button(vcenter(
+                row![
+                    text("Details").size(14),
+                    lucide(if open { ICON_CHEVRON_UP } else { ICON_CHEVRON_DOWN }, 16.0, tokens::TEXT_NAV),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            ))
+            .on_press(Message::DeviceDetails(d.backend_id))
+            .height(40)
+            .padding([0, 12])
+            .style(flat_button(Color::TRANSPARENT, tokens::HOVER, tokens::TEXT_NAV, Color::TRANSPARENT, 9.0)),
+        );
+
+        let pills = device_zones(app, kind).into_iter().map(|zone| {
+            container(text(zone).size(13).color(Color::from_rgb8(0xC9, 0xCF, 0xD6)))
+                .padding([6, 12])
+                .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL))
+                .into()
+        });
+        let mut body = column![
+            top,
+            iced::widget::Row::with_children(pills).spacing(8).wrap().vertical_spacing(8),
+        ]
+        .spacing(14);
+        if d.status == DeviceStatus::Blocked {
+            body = body.push(
+                text(
+                    "CNTRL is not allowed to open this device. Install the udev rule \
+                     (packaging/udev) and plug it in again.",
+                )
+                .size(13)
+                .color(tokens::WARNING),
+            );
+        }
+        if open {
+            let fact = |name: &'static str, value: String| {
+                row![
+                    text(name).size(13).color(tokens::TEXT_MUTED).width(64),
+                    text(value).size(13).font(tokens::MONO),
+                ]
+                .spacing(20)
+            };
+            let id = if d.vid != 0 { d.usb_id() } else { "—".to_string() };
+            body = body.push(
+                container(
+                    column![
+                        fact("Driver", d.backend_id.to_string()),
+                        fact("Path", d.control_path.clone().unwrap_or_else(|| d.detail.clone())),
+                        fact("ID", id),
+                    ]
+                    .spacing(6),
+                )
+                .padding([14, 16])
+                .width(Length::Fill)
+                .style(boxed(tokens::INSET, Color::TRANSPARENT, 0.0, tokens::RADIUS_CONTROL)),
+            );
+        }
+        cards = cards.push(
+            container(body)
+                .padding([18, 20])
+                .width(Length::Fill)
+                .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD)),
         );
     }
+    if app.devices.is_empty() {
+        cards = cards.push(text("No supported devices found.").size(14).color(tokens::TEXT_SECONDARY));
+    }
 
-    scrollable(col).height(Length::Fill).into()
+    // ponytail: solid outline — iced has no dashed borders (the mockup's is dashed).
+    let mono = |s: &'static str| text(s).size(14).font(tokens::MONO).color(tokens::TEXT);
+    let words = |s: &'static str| text(s).size(14).color(tokens::TEXT_SECONDARY);
+    let help = container(
+        row![
+            column![
+                text("Something missing?").size(15).font(tokens::UI_SEMIBOLD),
+                row![
+                    words("CNTRL talks to hardware over USB (HID) and I²C. RAM and graphics cards need the "),
+                    mono("i2c-dev"),
+                    words(" module loaded and access to "),
+                    mono("/dev/i2c-*"),
+                    words("."),
+                ]
+                .wrap(),
+            ]
+            .spacing(4)
+            .width(Length::Fill),
+            button(vcenter(text("Troubleshooting guide").size(14).font(tokens::UI_MEDIUM)))
+                .on_press(Message::OpenUrl(concat!(env!("CARGO_PKG_REPOSITORY"), "#readme")))
+                .height(tokens::TARGET)
+                .padding([0, 18])
+                .style(flat_button(
+                    tokens::RAISED,
+                    tokens::SEGMENT_ON,
+                    tokens::TEXT,
+                    Color::TRANSPARENT,
+                    tokens::RADIUS_CONTROL,
+                )),
+        ]
+        .spacing(16)
+        .align_y(Alignment::Center),
+    )
+    .padding(20)
+    .width(Length::Fill)
+    .style(boxed(Color::TRANSPARENT, Color::from_rgb8(0x34, 0x3B, 0x43), 1.0, tokens::RADIUS_CARD));
+
+    column![header, scrollable(column![cards, help].spacing(24)).height(Length::Fill)]
+        .spacing(24)
+        .into()
 }
 
 /// What a person would call this fan; the board's own name goes underneath.
@@ -3439,7 +3981,15 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         ]
         .spacing(2)
         .width(Length::Fill),
-        container(text(format!("{} curve", cfg.mode.label())).size(13).color(tokens::TEXT_NAV))
+        container(
+            text(if ch.is_pump() && cfg.mode != FanMode::Custom {
+                "Own curve".to_string()
+            } else {
+                format!("{} curve", cfg.mode.label())
+            })
+            .size(13)
+            .color(tokens::TEXT_NAV),
+        )
             .padding([6, 12])
             .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL)),
     ]
@@ -3511,8 +4061,10 @@ fn fan_card(app: &App) -> Element<'_, Message> {
                 _ => None,
             })
             .unwrap_or((&[], String::new(), None));
-    let custom = cfg.mode == FanMode::Custom;
-    let points = cfg.mode.preset().unwrap_or(stored);
+    // A pump is outside the presets: its own curve, editable in every mode.
+    let pump = ch.is_pump();
+    let custom = cfg.mode == FanMode::Custom || pump;
+    let points = if custom { stored } else { cfg.mode.preset().unwrap_or(stored) };
 
     // The curve runs on the hotter of its sensors, so that is what the marker shows.
     let temp_of = |id: &String| app.fan_readings.temps_c.get(id).copied();
@@ -3520,7 +4072,13 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         (Some(a), Some(b)) => Some(a.max(b)),
         (a, _) => a,
     };
-    let hint = if custom {
+    let hint = if pump {
+        format!(
+            "The pump keeps this curve in every mode and never runs below {}%. Drag a point to \
+             move it · click empty space to add one · right-click a point to remove it.",
+            cntrl_core::fan_control::PUMP_MIN_DUTY_PCT
+        )
+    } else if custom {
         "Drag a point to move it · click empty space to add one · right-click a point to remove it."
             .to_string()
     } else {
@@ -3563,7 +4121,13 @@ fn fan_card(app: &App) -> Element<'_, Message> {
     .text_size(14)
     .style(select_style);
 
-    let min = f32::from(assignment.min_duty_pct);
+    // The pump's floor starts where the engine's own limit is.
+    let (floor_lo, floor_hi) = if pump {
+        (f32::from(cntrl_core::fan_control::PUMP_MIN_DUTY_PCT), 100.0)
+    } else {
+        (0.0, 60.0)
+    };
+    let min = f32::from(assignment.min_duty_pct).clamp(floor_lo, floor_hi);
     let floor_id = ch.id.clone();
     let floor = column![
         row![
@@ -3572,7 +4136,7 @@ fn fan_card(app: &App) -> Element<'_, Message> {
             text(format!("{min:.0}%")).size(13).font(tokens::MONO),
         ],
         container(
-            slider(0.0..=60.0, min.min(60.0), move |v| Message::FanMinDuty(floor_id.clone(), v))
+            slider(floor_lo..=floor_hi, min, move |v| Message::FanMinDuty(floor_id.clone(), v))
                 .style(accent_slider(colors)),
         )
         .center_y(tokens::TARGET),
@@ -3592,8 +4156,8 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         )),
         row![field("Follow temperature of", follow.into()), floor].spacing(16),
     ];
-    if custom {
-        // Fine-tuning that only makes sense per fan.
+    {
+        // A second sensor ("whichever is hotter") applies in every mode.
         let none = SensorChoice { id: String::new(), text: "nothing else".into() };
         let also_choices: Vec<SensorChoice> = std::iter::once(none.clone())
             .chain(sensor_choices.iter().filter(|c| c.id != sensor_id).cloned())
@@ -3611,10 +4175,11 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         .padding([12, 12])
         .text_size(14)
         .style(select_style);
+        // Per-fan opt-out, offered where the fan's own curve is in charge.
         let release = column![
             Space::new().height(19),
             button(vcenter(text("Give this fan back to the BIOS").size(14)))
-                .on_press(Message::FanRemoveAssignment(ch.id.clone()))
+                .on_press_maybe(custom.then(|| Message::FanRemoveAssignment(ch.id.clone())))
                 .height(tokens::TARGET)
                 .padding([0, 16])
                 .style(flat_button(
@@ -3670,25 +4235,4 @@ fn status_text<'a>(status: &'a str, colors: &theme::ThemeColors) -> Element<'a, 
     text(status).size(13).color(muted(colors)).into()
 }
 
-/// Status dot + label, shown consistently on every device card.
-fn status_pill(status: cntrl_core::devices::DeviceStatus) -> Element<'static, Message> {
-    use cntrl_core::devices::DeviceStatus;
-    let color = match status {
-        DeviceStatus::Ready => Color::from_rgb8(0x4c, 0xc2, 0x6a),
-        DeviceStatus::Blocked => Color::from_rgb8(0xe0, 0x6c, 0x4c),
-        DeviceStatus::Absent => Color::from_rgb8(0x80, 0x80, 0x80),
-    };
-    let dot = container(Space::new().width(8).height(8)).style(move |_| container::Style {
-        background: Some(color.into()),
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    row![dot, text(status.label()).size(12).color(color)]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into()
-}
 

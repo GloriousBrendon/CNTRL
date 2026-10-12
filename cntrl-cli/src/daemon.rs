@@ -139,6 +139,9 @@ fn fan_watcher() {
             return;
         }
     };
+    if let Ok(exe) = std::env::current_exe() {
+        cntrl_core::fan_engine::spawn_watchdog(&exe);
+    }
     // Log a tick only when it wrote something or its problems changed — a
     // channel that keeps failing would otherwise fill the journal every tick.
     let mut last_problems = String::new();

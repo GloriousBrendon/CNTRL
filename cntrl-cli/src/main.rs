@@ -140,6 +140,10 @@ enum FanCommands {
     Run,
     /// Restore all driven fans to their pre-engine state (recovery path).
     Restore,
+    /// Wait for the running engine to exit, then restore fans it left behind
+    /// (started by the engine itself; covers crashes and `kill -9`).
+    #[command(hide = true)]
+    Watchdog,
 }
 
 fn main() {
@@ -412,6 +416,11 @@ fn run_fans(args: FanArgs) -> Result<(), String> {
             println!("{msg}");
             Ok(())
         }
+        FanCommands::Watchdog => {
+            let msg = cntrl_core::fan_engine::watchdog()?;
+            eprintln!("cntrl fans watchdog: engine gone — {msg}");
+            Ok(())
+        }
     }
 }
 
@@ -477,6 +486,9 @@ fn run_fans_engine() -> Result<(), String> {
     }
 
     let _lock = fan_engine::acquire_lock()?;
+    if let Ok(exe) = std::env::current_exe() {
+        fan_engine::spawn_watchdog(&exe);
+    }
     fan_engine::install_panic_hook();
     fan_engine::install_signal_handlers();
 

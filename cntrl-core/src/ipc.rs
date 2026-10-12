@@ -59,6 +59,8 @@ pub struct CanvasStatus {
     /// Audio levels the stream is rendering with, so a preview can match.
     pub bands: Vec<f32>,
     pub level: f32,
+    /// The effect being streamed (it can differ from the saved layout's).
+    pub effect: Option<crate::canvas_effects::EffectKind>,
 }
 
 impl CanvasStatus {

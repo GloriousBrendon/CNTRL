@@ -5,9 +5,10 @@
 //! engine restores every driven fan to the enable/pwm it had before the engine
 //! engaged, mirroring the canvas stream's "stop → restore saved lighting" rule.
 //!
-//! Residual risk (documented, not solved): `SIGKILL` (`kill -9`) cannot be
-//! trapped, so a hard-killed engine leaves fans at their last commanded duty in
-//! manual mode. `cntrl fans restore` recovers from that on next run.
+//! `SIGKILL` (`kill -9`) and hard crashes cannot be trapped by the engine
+//! itself, so a second process stands by ([`watchdog`], started as
+//! `cntrl fans watchdog`): it waits on the engine's lock, which the kernel
+//! frees when the engine dies in any way, and then restores the fans.
 
 use crate::fan_curves::{self, FanTickSummary, TickState};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -82,7 +83,27 @@ pub fn acquire_lock() -> Result<EngineLock, String> {
     acquire_lock_at(&lock_path()?)
 }
 
-fn acquire_lock_at(path: &std::path::Path) -> Result<EngineLock, String> {
+/// Block until no engine holds the lock at `path` (it stopped, crashed or was
+/// killed: the kernel releases the lock with the process).
+pub(crate) fn wait_for_engine_exit(path: &std::path::Path) -> Result<(), String> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    file.lock().map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Stand by until the running engine is gone, then hand back any fan it left
+/// in manual mode. After a clean stop there is nothing left to restore.
+pub fn watchdog() -> Result<String, String> {
+    wait_for_engine_exit(&lock_path()?)?;
+    Ok(fan_curves::restore_all())
+}
+
+pub(crate) fn acquire_lock_at(path: &std::path::Path) -> Result<EngineLock, String> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -105,6 +126,21 @@ fn acquire_lock_at(path: &std::path::Path) -> Result<EngineLock, String> {
     let _ = file.set_len(0);
     let _ = write!(file, "{}", std::process::id());
     Ok(EngineLock { _file: file })
+}
+
+/// Start the stand-by process that restores the fans if this one dies without
+/// doing so (see [`watchdog`]). Call it once the engine lock is held. `exe` is
+/// the `cntrl` binary.
+pub fn spawn_watchdog(exe: &std::path::Path) {
+    use std::process::{Command, Stdio};
+    let spawned = Command::new(exe)
+        .args(["fans", "watchdog"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn();
+    if let Err(e) = spawned {
+        eprintln!("cntrl fans: no watchdog ({e}); a hard kill would leave fans at a fixed speed");
+    }
 }
 
 /// Run the control loop until a stop is requested (SIGINT/SIGTERM),
