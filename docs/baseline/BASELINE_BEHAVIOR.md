@@ -67,7 +67,7 @@
 
 - **API (implemented):** `real_hid::hid_diagnostics()` — enumerates VID/PID devices, report descriptor hex per path, errors on open/read. `vendor_hidraw_path_status()` — resolved path or error string.
 - **GTK UI (current baseline):** these helpers are **not** wired into `cntrl-gtk/src/ui/window.rs` or the Lighting page; the compiler reports them as unused. Operational feedback is mainly **stderr** from `mchose_lighting` during apply (`run_pipeline` logs path, stages, `effect_id`) and **toasts** on persist/HID failure from Apply.
-- **Gap vs older docs:** `PHASE1_LIGHTING.md` mentions a status bar / in-app diagnostics — treat that as aspirational until UI is connected or ICED exposes it.
+- **Gap vs older docs:** `docs/protocol/PHASE1_LIGHTING.md` mentions a status bar / in-app diagnostics — treat that as aspirational until UI is connected or ICED exposes it.
 
 ## udev
 

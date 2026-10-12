@@ -938,8 +938,10 @@ and home paths finds nothing outside `tasks/` and `docs/reviews/`.
 **Still open, needs you:** the dumps are still in git history (2 commits touch them). A search of
 `mchose-indexeddb-dump.json` for "serial", "email" and "token" finds nothing, but I have not
 read the dumps through. Rewriting history is
-destructive, so I have not done it. The analysis scripts and `PHASE1_LIGHTING.md` are still in
-the repo root.
+destructive, so I have not done it.
+**2026-10-12:** the analysis scripts and `PHASE1_LIGHTING.md` moved to `docs/protocol/`. The
+scripts are kept as a record of the reverse engineering; two of them read a file from the old
+Tauri tree and no longer run as they are.
 
 ## Task 37: README, supported hardware list, CI
 

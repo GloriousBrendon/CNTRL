@@ -194,7 +194,7 @@ Authoritative pre-migration snapshot and gates:
 
 3. **Lighting** tab: choose **Static**, **Custom**, **Off**, or a **labeled** preset; set color where relevant; **Apply To Keyboard**. **Static** is not firmware id `3` — see baseline doc. Optional: `MCHOSE_HIDRAW=/dev/hidrawN` if auto-detection picks the wrong interface.
 
-**Legacy Phase 1 notes (Tauri era):** [PHASE1_LIGHTING.md](PHASE1_LIGHTING.md) — prefer **baseline** docs above for current behavior.
+**Legacy Phase 1 notes (Tauri era):** [PHASE1_LIGHTING.md](docs/protocol/PHASE1_LIGHTING.md) — prefer **baseline** docs above for current behavior.
 
 ## Scripts
 
