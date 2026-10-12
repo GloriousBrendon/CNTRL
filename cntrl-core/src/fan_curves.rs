@@ -27,9 +27,11 @@ pub struct CurvePoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CurveKind {
-    /// Temp→duty graph over a single sensor.
+    /// Temp→duty graph over a sensor, or over the hotter of two.
     Graph {
         sensor_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        also_sensor_id: Option<String>,
         points: Vec<CurvePoint>,
     },
     /// The max() of the referenced member curves (Fan Control's "Mix Curve").
@@ -120,8 +122,13 @@ impl FanCurveConfig {
         }
         let curve = self.curve(curve_id)?;
         match &curve.kind {
-            CurveKind::Graph { sensor_id, points } => {
-                let t = *temps.get(sensor_id)?;
+            CurveKind::Graph { sensor_id, also_sensor_id, points } => {
+                let mut t = *temps.get(sensor_id)?;
+                // A lost second sensor fails the curve too: the fan goes back
+                // to firmware rather than ignoring the part it was watching.
+                if let Some(also) = also_sensor_id {
+                    t = t.max(*temps.get(also)?);
+                }
                 Some(eval_graph(points, t))
             }
             CurveKind::Mix { member_ids } => {
@@ -264,8 +271,9 @@ fn update_smoothed(cfg: &FanCurveConfig, discovery: &FanDiscovery, state: &mut T
     let alpha = cfg.temp_smoothing_alpha.clamp(0.01, 1.0);
     let mut wanted: Vec<String> = Vec::new();
     for c in &cfg.curves {
-        if let CurveKind::Graph { sensor_id, .. } = &c.kind {
+        if let CurveKind::Graph { sensor_id, also_sensor_id, .. } = &c.kind {
             wanted.push(sensor_id.clone());
+            wanted.extend(also_sensor_id.clone());
         }
     }
     wanted.sort();
@@ -615,6 +623,26 @@ mod tests {
     }
 
     #[test]
+    fn graph_follows_the_hotter_of_two_sensors() {
+        let mut cfg = FanCurveConfig::default();
+        cfg.curves.push(Curve {
+            id: "c".into(),
+            name: "c".into(),
+            kind: CurveKind::Graph {
+                sensor_id: "cpu".into(),
+                also_sensor_id: Some("gpu".into()),
+                points: vec![pt(0.0, 0), pt(100.0, 100)],
+            },
+        });
+        let mut temps = HashMap::from([("cpu".to_string(), 40.0), ("gpu".to_string(), 70.0)]);
+        assert_eq!(cfg.eval_curve("c", &temps), Some(70));
+        temps.insert("cpu".into(), 90.0);
+        assert_eq!(cfg.eval_curve("c", &temps), Some(90));
+        temps.remove("gpu");
+        assert_eq!(cfg.eval_curve("c", &temps), None);
+    }
+
+    #[test]
     fn mix_takes_max_of_members() {
         let mut cfg = FanCurveConfig::default();
         cfg.curves.push(Curve {
@@ -622,6 +650,7 @@ mod tests {
             name: "a".into(),
             kind: CurveKind::Graph {
                 sensor_id: "s1".into(),
+                also_sensor_id: None,
                 points: vec![pt(0.0, 10), pt(100.0, 30)],
             },
         });
@@ -630,6 +659,7 @@ mod tests {
             name: "b".into(),
             kind: CurveKind::Graph {
                 sensor_id: "s2".into(),
+                also_sensor_id: None,
                 points: vec![pt(0.0, 50), pt(100.0, 60)],
             },
         });
@@ -695,6 +725,7 @@ mod tests {
                 name: "c".into(),
                 kind: CurveKind::Graph {
                     sensor_id: "fakechip/temp1".into(),
+                    also_sensor_id: None,
                     points: vec![pt(30.0, 20), pt(50.0, 60)],
                 },
             }],

@@ -778,6 +778,7 @@ pub(crate) enum Message {
     FanCurveEditDone,
     /// Change the sensor a channel's curve reads from.
     FanSetSensor(String, String),
+    FanSetAlsoSensor(String, Option<String>),
     /// Min duty floor for a channel (percent).
     FanMinDuty(String, f32),
     /// Max duty ceiling for a channel (percent).
@@ -1285,6 +1286,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 name: format!("{channel_id} curve"),
                 kind: CurveKind::Graph {
                     sensor_id,
+                    also_sensor_id: None,
                     points: vec![
                         CurvePoint { temp_c: 30.0, duty_pct: 20 },
                         CurvePoint { temp_c: 50.0, duty_pct: 40 },
@@ -1355,6 +1357,15 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::FanSetSensor(curve_id, sensor_id) => {
             if let Some(c) = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id) {
                 if let cntrl_core::fan_curves::CurveKind::Graph { sensor_id: s, .. } = &mut c.kind {
+                    *s = sensor_id;
+                }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanSetAlsoSensor(curve_id, sensor_id) => {
+            if let Some(c) = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id) {
+                if let cntrl_core::fan_curves::CurveKind::Graph { also_sensor_id: s, .. } = &mut c.kind {
                     *s = sensor_id;
                 }
             }
@@ -2621,18 +2632,46 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
 
     // Curve editor for the assigned graph curve.
     let curve_id = App::curve_id_for(&sel);
-    let (points, sensor_id): (&[cntrl_core::fan_curves::CurvePoint], String) = app
+    let (points, sensor_id, also_id): (&[cntrl_core::fan_curves::CurvePoint], String, Option<String>) = app
         .fan_curve_cfg
         .curve(&curve_id)
         .and_then(|c| match &c.kind {
-            cntrl_core::fan_curves::CurveKind::Graph { points, sensor_id } => {
-                Some((points.as_slice(), sensor_id.clone()))
+            cntrl_core::fan_curves::CurveKind::Graph { points, sensor_id, also_sensor_id } => {
+                Some((points.as_slice(), sensor_id.clone(), also_sensor_id.clone()))
             }
             _ => None,
         })
-        .unwrap_or((&[], String::new()));
+        .unwrap_or((&[], String::new(), None));
 
-    let current_temp = app.fan_readings.temps_c.get(&sensor_id).copied();
+    // The curve runs on the hotter of its sensors, so that is what "now" shows.
+    let temp_of = |id: &String| app.fan_readings.temps_c.get(id).copied();
+    let current_temp = match (temp_of(&sensor_id), also_id.as_ref().and_then(temp_of)) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, _) => a,
+    };
+
+    let none_choice = SensorChoice { id: String::new(), text: "none".into() };
+    let also_choices: Vec<SensorChoice> = std::iter::once(none_choice.clone())
+        .chain(sensor_choices.iter().filter(|c| c.id != sensor_id).cloned())
+        .collect();
+    let also_selected = match &also_id {
+        Some(id) => also_choices.iter().find(|c| &c.id == id).cloned(),
+        None => Some(none_choice),
+    };
+    let also_curve_id = curve_id.clone();
+    let also_row = row![
+        text("Or, if hotter").size(12).color(muted(colors)),
+        pick_list(also_choices, also_selected, move |choice| {
+            Message::FanSetAlsoSensor(
+                also_curve_id.clone(),
+                (!choice.id.is_empty()).then_some(choice.id),
+            )
+        })
+        .placeholder("sensor not found — pick one")
+        .text_size(13),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center);
 
     let sensor_row = row![
         text("Sensor").size(12).color(muted(colors)),
@@ -2702,6 +2741,7 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
         column![
             text(sel.clone()).size(18),
             sensor_row,
+            also_row,
             container(editor).padding(8).style(card(colors)),
             envelope,
             footer,
