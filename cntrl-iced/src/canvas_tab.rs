@@ -30,6 +30,8 @@ pub fn render_preview(
 pub struct Scene<'a> {
     pub layout: &'a CanvasLayout,
     pub selected: Option<&'a str>,
+    /// Draw the placement grid (shown when the effect backdrop is hidden).
+    pub grid: bool,
     pub colors: &'a ThemeColors,
 }
 
@@ -154,6 +156,15 @@ impl icanvas::Program<Message> for Scene<'_> {
 
         let accent = hexc(&self.colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
         let to_px = |unit: (f32, f32)| Point::new(o.x + unit.0 * ppu, o.y + unit.1 * ppu);
+        if self.grid {
+            // A dot every 5 canvas units, as in the design's empty canvas.
+            let dot = Color::from_rgb8(0x2A, 0x30, 0x37);
+            for gx in (0..=CANVAS_W as u32).step_by(5) {
+                for gy in (0..=CANVAS_H as u32).step_by(5) {
+                    f.fill(&icanvas::Path::circle(to_px((gx as f32, gy as f32)), 1.2), dot);
+                }
+            }
+        }
 
         for (dev_index, d) in self.layout.devices.iter().enumerate() {
             // Hardware that isn't there or is switched off is not drawn (its
@@ -310,22 +321,26 @@ impl icanvas::Program<Message> for Scene<'_> {
 /// the two layers stay aligned at any widget size.
 pub fn scene_element<'a>(
     layout: &'a CanvasLayout,
-    preview: &'a Handle,
+    preview: Option<&'a Handle>,
     selected: Option<&'a str>,
     colors: &'a ThemeColors,
 ) -> Element<'a, Message> {
+    let overlay = Canvas::new(Scene {
+        layout,
+        selected,
+        grid: preview.is_none(),
+        colors,
+    })
+    .width(Length::Fill)
+    .height(Length::Fill);
+    let Some(preview) = preview else {
+        return overlay.into();
+    };
     let backdrop = iced::widget::image(preview.clone())
         .content_fit(iced::ContentFit::Contain)
         .filter_method(FilterMethod::Linear)
         .width(Length::Fill)
         .height(Length::Fill);
-    let overlay = Canvas::new(Scene {
-        layout,
-        selected,
-        colors,
-    })
-    .width(Length::Fill)
-    .height(Length::Fill);
     iced::widget::stack![backdrop, overlay].into()
 }
 

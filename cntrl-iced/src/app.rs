@@ -40,7 +40,7 @@ pub fn run() -> iced::Result {
                 vec![iced::time::every(Duration::from_secs(1)).map(|_| Message::ThemePoll)];
             if app.tab == ShellTab::Canvas {
                 subs.push(iced::time::every(Duration::from_millis(33)).map(|_| Message::CanvasTick));
-            } else if app.tab == ShellTab::Fans {
+            } else if matches!(app.tab, ShellTab::Fans | ShellTab::Overview) {
                 subs.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::FanPoll));
             }
             // Stream edits made on other tabs still have to reach the daemon.
@@ -111,16 +111,6 @@ pub(crate) fn hexc(s: &str, fallback: Color) -> Color {
     color_from_hex(s).unwrap_or(fallback)
 }
 
-/// Pick black/white text for good contrast against `c`.
-fn contrast_on(c: Color) -> Color {
-    let lum = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-    if lum > 0.6 {
-        tokens::ON_ACCENT
-    } else {
-        Color::WHITE
-    }
-}
-
 // --- style helpers shared by the screens not yet ported to the redesign; they
 // read the same tokens through `App::colors` ---
 
@@ -135,25 +125,6 @@ fn app_bg(_colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
 /// Secondary/caption text colour.
 pub(crate) fn muted(_colors: &theme::ThemeColors) -> Color {
     tokens::TEXT_MUTED
-}
-
-/// Hairline border colour derived from the text colour (for definition on dark bg).
-fn hairline(_colors: &theme::ThemeColors) -> Color {
-    tokens::BORDER
-}
-
-fn card(colors: &theme::ThemeColors) -> impl Fn(&Theme) -> container::Style {
-    let surface = hexc(&colors.surface, Color::from_rgb8(0x1f, 0x25, 0x2e));
-    let line = hairline(colors);
-    move |_| container::Style {
-        background: Some(surface.into()),
-        border: iced::Border {
-            radius: tokens::RADIUS_CARD.into(),
-            width: 1.0,
-            color: line,
-        },
-        ..Default::default()
-    }
 }
 
 /// Accent-coloured slider (filled track + accent handle).
@@ -178,66 +149,10 @@ fn accent_slider(colors: &theme::ThemeColors) -> impl Fn(&Theme, slider::Status)
     }
 }
 
-fn nav_button_style(
-    colors: &theme::ThemeColors,
-    active: bool,
-) -> impl Fn(&Theme, button::Status) -> button::Style {
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    let text = hexc(&colors.text, Color::WHITE);
-    let surface = hexc(&colors.surface, Color::from_rgb8(0x1f, 0x25, 0x2e));
-    move |theme, status| {
-        let hovered = matches!(status, button::Status::Hovered);
-        let bg = if active {
-            accent
-        } else if hovered {
-            surface
-        } else {
-            Color::TRANSPARENT
-        };
-        let fg = if active { contrast_on(accent) } else { text };
-        let mut s = button::secondary(theme, status);
-        s.background = Some(bg.into());
-        s.text_color = fg;
-        s.border = iced::Border {
-            radius: 8.0.into(),
-            ..s.border
-        };
-        s
-    }
-}
-
-fn accent_button_style(
-    colors: &theme::ThemeColors,
-) -> impl Fn(&Theme, button::Status) -> button::Style {
-    let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-    move |theme, status| {
-        let dim = matches!(status, button::Status::Hovered);
-        let bg = if dim {
-            lerp_color(accent, Color::WHITE, 0.12)
-        } else {
-            accent
-        };
-        let mut s = button::primary(theme, status);
-        s.background = Some(bg.into());
-        s.text_color = contrast_on(accent);
-        s.border = iced::Border {
-            radius: 10.0.into(),
-            ..s.border
-        };
-        s
-    }
-}
-
-fn segment_style(
-    colors: &theme::ThemeColors,
-    active: bool,
-) -> impl Fn(&Theme, button::Status) -> button::Style {
-    nav_button_style(colors, active)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ShellTab {
     #[default]
+    Overview,
     Lighting,
     Canvas,
     Fans,
@@ -246,7 +161,7 @@ pub(crate) enum ShellTab {
 }
 
 impl ShellTab {
-    /// Startup tab override (`CNTRL_START_TAB=lighting|canvas|fans|devices|sync`).
+    /// Startup tab override (`CNTRL_START_TAB=overview|lighting|canvas|fans|devices|sync`).
     fn from_env() -> Self {
         match std::env::var("CNTRL_START_TAB")
             .unwrap_or_default()
@@ -254,11 +169,12 @@ impl ShellTab {
             .to_ascii_lowercase()
             .as_str()
         {
+            "lighting" => ShellTab::Lighting,
             "canvas" => ShellTab::Canvas,
             "fans" => ShellTab::Fans,
             "devices" => ShellTab::Devices,
             "sync" => ShellTab::Sync,
-            _ => ShellTab::Lighting,
+            _ => ShellTab::Overview,
         }
     }
 }
@@ -360,6 +276,10 @@ struct App {
     apply_busy: bool,
     /// Sidebar profile list is open.
     profile_menu: bool,
+    /// Layout tab: show the running effect behind the devices.
+    canvas_live_preview: bool,
+    /// Layout tab: dragged devices land on a 2-unit grid.
+    canvas_snap: bool,
     /// Hex text for the streamed effect's selected color.
     canvas_hex: String,
     /// Devices screen: the card whose details are open (backend id).
@@ -481,6 +401,8 @@ impl App {
             apply_busy: false,
             profile_menu: false,
             fx_thumbs: stream_thumbs(),
+            canvas_live_preview: true,
+            canvas_snap: false,
             canvas_hex: String::new(),
             device_open: None,
             device_identify: None,
@@ -734,6 +656,12 @@ pub(crate) enum Message {
     LightingStream(EffectKind),
     ToggleAllTargets,
     ProfileMenu,
+    /// Overview: switch every device's lights off.
+    AllLightsOff,
+    CanvasLivePreview,
+    CanvasSnap,
+    /// Turn the selected layout device to exactly this many degrees.
+    CanvasSetRotation(f32),
     /// Push stream edits to the daemon (ticks only while some are pending).
     CanvasFlush,
     CanvasHexChanged(String),
@@ -767,7 +695,6 @@ pub(crate) enum Message {
     CanvasMove(String, f32, f32),
     CanvasDragEnd,
     CanvasToggleEnabled(String),
-    CanvasRotateSelected,
     CanvasScaleSelected(f32),
     CanvasResetLayout,
     CanvasStreamToggle,
@@ -862,7 +789,7 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 app.service_enabled = service_enabled();
                 app.desktop_accent = cntrl_core::theme_sync::current_theme_color().ok();
             }
-            if t == ShellTab::Fans {
+            if matches!(t, ShellTab::Fans | ShellTab::Overview) {
                 app.refresh_fans();
                 app.fan_curve_cfg = cntrl_core::fan_curves::load();
             }
@@ -900,6 +827,30 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             } else {
                 Task::done(Message::CanvasStreamToggle)
             }
+        }
+        Message::AllLightsOff => {
+            app.targets.set_all(true);
+            app.effect_id = EFFECT_ID_OFF;
+            app.queue_apply();
+            Task::none()
+        }
+        Message::CanvasLivePreview => {
+            app.canvas_live_preview = !app.canvas_live_preview;
+            Task::none()
+        }
+        Message::CanvasSnap => {
+            app.canvas_snap = !app.canvas_snap;
+            Task::none()
+        }
+        Message::CanvasSetRotation(deg) => {
+            if let Some(id) = app.canvas_selected.clone() {
+                if let Some(d) = app.canvas_layout.device_mut(&id) {
+                    d.placement.rotation_deg = deg;
+                }
+                app.sync_stream();
+                app.save_canvas_layout();
+            }
+            Task::none()
         }
         Message::CanvasFlush => {
             app.exchange_with_daemon();
@@ -1236,6 +1187,8 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CanvasMove(id, x, y) => {
+            let snap = |v: f32| if app.canvas_snap { (v / 2.0).round() * 2.0 } else { v };
+            let (x, y) = (snap(x), snap(y));
             if let Some(d) = app.canvas_layout.device_mut(&id) {
                 d.placement.x = x;
                 d.placement.y = y;
@@ -1253,16 +1206,6 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             }
             app.sync_stream();
             app.save_canvas_layout();
-            Task::none()
-        }
-        Message::CanvasRotateSelected => {
-            if let Some(id) = app.canvas_selected.clone() {
-                if let Some(d) = app.canvas_layout.device_mut(&id) {
-                    d.placement.rotation_deg = (d.placement.rotation_deg + 90.0) % 360.0;
-                }
-                app.sync_stream();
-                app.save_canvas_layout();
-            }
             Task::none()
         }
         Message::CanvasScaleSelected(factor) => {
@@ -1719,6 +1662,8 @@ fn view(app: &App) -> Element<'_, Message> {
 }
 
 // Lucide icons (ISC, see resources/icons/LUCIDE-LICENSE).
+const ICON_OVERVIEW: &[u8] = include_bytes!("../../resources/icons/layout-dashboard.svg");
+const ICON_POWER: &[u8] = include_bytes!("../../resources/icons/power.svg");
 const ICON_LIGHTING: &[u8] = include_bytes!("../../resources/icons/sun.svg");
 const ICON_FANS: &[u8] = include_bytes!("../../resources/icons/fan.svg");
 const ICON_DEVICES: &[u8] = include_bytes!("../../resources/icons/cpu.svg");
@@ -1795,6 +1740,7 @@ fn vcenter<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message>
 
 fn panel_view(app: &App) -> Element<'_, Message> {
     let main: Element<'_, Message> = match app.tab {
+        ShellTab::Overview => overview_view(app),
         ShellTab::Lighting => lighting_view(app),
         ShellTab::Canvas => canvas_view(app),
         ShellTab::Fans => fans_view(app),
@@ -1905,8 +1851,8 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     )
     .center_y(tokens::TARGET)
     .padding([0, 12]);
-    // ponytail: no Overview item yet — its screen (Main.dc.html) is not ported.
     let nav = column![
+        nav_item(ICON_OVERVIEW, "Overview", app.tab == ShellTab::Overview, accent, ShellTab::Overview),
         nav_item(ICON_LIGHTING, "Lighting", lighting_on, accent, ShellTab::Lighting),
         nav_item(ICON_FANS, "Fans", app.tab == ShellTab::Fans, accent, ShellTab::Fans),
         nav_item(ICON_DEVICES, "Devices", app.tab == ShellTab::Devices, accent, ShellTab::Devices),
@@ -2010,46 +1956,6 @@ fn effect_name(id: i32) -> String {
             .map(|m| m.label.to_string())
             .unwrap_or_else(|| format!("Effect {id}"))
     }
-}
-
-/// Labelled slider that also reports when the drag ends — for values that
-/// update live but are only worth writing to disk once.
-fn labeled_slider_released<'a>(
-    label: &'a str,
-    value_label: String,
-    range: std::ops::RangeInclusive<f32>,
-    value: f32,
-    colors: &theme::ThemeColors,
-    on_change: impl Fn(f32) -> Message + 'a,
-    on_release: Option<Message>,
-) -> Element<'a, Message> {
-    let head = row![
-        text(label).size(12).color(muted(colors)),
-        Space::new().width(Length::Fill),
-        text(value_label).size(12).color(muted(colors)),
-    ]
-    .align_y(Alignment::Center);
-    let mut control = slider(range, value, on_change).style(accent_slider(colors));
-    if let Some(msg) = on_release {
-        control = control.on_release(msg);
-    }
-    column![head, control].spacing(5).into()
-}
-
-/// Small card section label (uppercased, muted).
-fn card_label<'a>(label: &'a str, colors: &theme::ThemeColors) -> Element<'a, Message> {
-    text(label).size(13).color(muted(colors)).into()
-}
-
-/// 1px horizontal rule in the hairline colour.
-fn hairline_divider(colors: &theme::ThemeColors) -> Element<'static, Message> {
-    let line = hairline(colors);
-    container(Space::new().height(1).width(Length::Fill))
-        .style(move |_| container::Style {
-            background: Some(line.into()),
-            ..Default::default()
-        })
-        .into()
 }
 
 /// Effects / Layout switch shared by both Lighting views.
@@ -2522,6 +2428,25 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
                         .style(accent_slider(colors)),
                 ));
             }
+            if kind.controls().scale {
+                sliders = sliders.push(value_slider(
+                    "Size",
+                    format!("{:.1}×", s.scale),
+                    slider(0.3..=3.0, s.scale, Message::CanvasScale)
+                        .step(0.1)
+                        .on_release(Message::CanvasDragEnd)
+                        .style(accent_slider(colors)),
+                ));
+            }
+            if kind.controls().angle {
+                sliders = sliders.push(value_slider(
+                    "Direction",
+                    format!("{:.0}°", s.angle),
+                    slider(0.0..=360.0, s.angle, Message::CanvasAngle)
+                        .on_release(Message::CanvasDragEnd)
+                        .style(accent_slider(colors)),
+                ));
+            }
         }
         Fx::Device(id) => {
             sliders = sliders.push(value_slider(
@@ -2759,391 +2684,745 @@ fn hex_field<'a>(
         .into()
 }
 
-fn canvas_view(app: &App) -> Element<'_, Message> {
+/// Compact square button used for −/+ steppers on the Layout tab.
+fn stepper<'a>(label: &'a str, msg: Option<Message>) -> Element<'a, Message> {
+    button(container(text(label).size(16)).center(Length::Fill))
+        .on_press_maybe(msg)
+        .width(36)
+        .height(36)
+        .padding(0)
+        .style(flat_button(tokens::SURFACE, tokens::HOVER, tokens::TEXT, tokens::BORDER_CONTROL, 8.0))
+        .into()
+}
+
+/// Where a layout device is plugged in, in words.
+fn layout_via(id: &str) -> String {
+    if id == core_canvas::DEV_KEYBOARD {
+        "MCHOSE Ace68-II · USB".into()
+    } else if id == core_canvas::DEV_GPU {
+        "Graphics card · single zone".into()
+    } else if id == core_canvas::DEV_RGB12V {
+        "Motherboard · 12 V header".into()
+    } else if let Some(n) = id.strip_prefix("ram") {
+        format!("Corsair · module {}", n.parse::<u32>().map_or(0, |n| n + 1))
+    } else if let Some(n) = id.strip_prefix("mbzone") {
+        format!("Motherboard · board zone {n}")
+    } else if id.starts_with("dled1") {
+        "Motherboard · ARGB header 1".into()
+    } else {
+        "Motherboard · ARGB header 2".into()
+    }
+}
+
+/// What is daisy-chained on one ARGB header: fans, LEDs per fan, a strip.
+fn chain_box<'a>(app: &'a App, header: &'static str, title: &'a str) -> Element<'a, Message> {
+    use cntrl_core::canvas::SegmentKind;
+    let accent = app.accent();
+    let segs = app.canvas_layout.chains.header(header);
+    let fans = segs.iter().filter(|s| s.kind == SegmentKind::Fan).count() as u8;
+    let fan_leds = segs.iter().find(|s| s.kind == SegmentKind::Fan).map(|s| s.leds);
+    let strip = app.canvas_layout.chains.strip_leds(header);
+    let total: u32 = segs.iter().map(|s| u32::from(s.leds)).sum();
+
+    let mut rows = column![
+        text(title).size(14).font(tokens::UI_SEMIBOLD),
+        row![
+            text("Fans on this header").size(14).color(tokens::TEXT_NAV).width(Length::Fill),
+            stepper("−", (fans > 0).then(|| Message::CanvasChainFans(header, fans - 1))),
+            container(text(fans.to_string()).size(14).font(tokens::MONO)).center_x(32),
+            stepper("+", (fans < 8).then(|| Message::CanvasChainFans(header, fans + 1))),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    ]
+    .spacing(14);
+    if let Some(current) = fan_leds {
+        let mut per_fan = row![text("LEDs per fan").size(14).color(tokens::TEXT_NAV).width(Length::Fill)]
+            .spacing(4)
+            .align_y(Alignment::Center);
+        for leds in [8u8, 12, 16] {
+            let on = current == leds;
+            per_fan = per_fan.push(
+                button(vcenter(text(leds.to_string()).size(14)))
+                    .on_press(Message::CanvasChainFanLeds(header, leds))
+                    .height(36)
+                    .padding([0, 12])
+                    .style(flat_button(
+                        if on { tokens::SURFACE } else { Color::TRANSPARENT },
+                        tokens::HOVER,
+                        if on { tokens::TEXT } else { tokens::TEXT_SECONDARY },
+                        if on { accent } else { tokens::BORDER_CONTROL },
+                        8.0,
+                    )),
+            );
+        }
+        rows = rows.push(per_fan);
+    }
+    rows = rows.push(value_slider(
+        "Strip after the fans",
+        if strip == 0 { "none".to_string() } else { format!("{strip} LEDs") },
+        slider(0.0..=120.0, f32::from(strip), move |v| Message::CanvasChainStrip(header, v))
+            .on_release(Message::CanvasDragEnd)
+            .style(accent_slider(&app.colors)),
+    ));
+    rows = rows.push(
+        text(match (total, strip) {
+            (0, _) => "Nothing connected".to_string(),
+            (n, 0) => format!("{n} LEDs in total · no strip after the fans"),
+            (n, _) => format!("{n} LEDs in total"),
+        })
+        .size(13)
+        .color(tokens::TEXT_SECONDARY),
+    );
+    container(rows)
+        .padding(16)
+        .width(Length::Fill)
+        .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE))
+        .into()
+}
+
+/// Small outlined button of the Layout tab (pressed look when `on`).
+fn tool_button<'a>(label: &'a str, on: bool, msg: Message) -> iced::widget::Button<'a, Message> {
+    button(vcenter(text(label).size(14)))
+        .on_press(msg)
+        .height(40)
+        .padding([0, 14])
+        .style(flat_button(
+            if on { tokens::RAISED } else { Color::TRANSPARENT },
+            tokens::HOVER,
+            if on { tokens::TEXT } else { tokens::TEXT_NAV },
+            tokens::BORDER_CONTROL,
+            9.0,
+        ))
+}
+
+/// Left side of the Layout tab: the canvas card over the stream controls.
+fn layout_canvas_column(app: &App, canvas_height: f32) -> Element<'_, Message> {
     let colors = &app.colors;
+    let accent = app.accent();
     let s = &app.canvas_layout.settings;
-    let controls_for = s.effect.controls();
     let streaming = app.streaming();
+    let rule = || {
+        container(Space::new().height(1).width(Length::Fill)).style(boxed(
+            tokens::BORDER,
+            Color::TRANSPARENT,
+            0.0,
+            0.0,
+        ))
+    };
 
-    let stream_bar = row![
+    // ── the canvas card: toolbar, scene, hint ──
+    let toolbar = row![
+        button(vcenter(
+            row![
+                shape(
+                    if app.canvas_live_preview { tokens::SUCCESS } else { Color::from_rgb8(0x5A, 0x62, 0x6C) },
+                    10.0,
+                    tokens::RADIUS_PILL
+                ),
+                text("Live preview").size(14),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ))
+        .on_press(Message::CanvasLivePreview)
+        .height(40)
+        .padding([0, 14])
+        .style(flat_button(tokens::RAISED, tokens::SEGMENT_ON, tokens::TEXT, tokens::BORDER_CONTROL, 9.0)),
+        tool_button("Snap to grid", app.canvas_snap, Message::CanvasSnap),
         Space::new().width(Length::Fill),
-        checkbox(app.settings.canvas_autostart)
-            .label("Start at login")
-            .on_toggle(Message::CanvasAutostart),
-        button(text(if streaming { "Stop stream" } else { "Start stream" }).size(15))
-            .on_press(Message::CanvasStreamToggle)
-            .padding([11, 26])
-            .style(accent_button_style(colors)),
+        button(vcenter(text("Reset layout").size(14)))
+            .on_press(Message::CanvasResetLayout)
+            .height(40)
+            .padding([0, 14])
+            .style(flat_button(Color::TRANSPARENT, tokens::HOVER, tokens::TEXT_NAV, Color::TRANSPARENT, 9.0)),
     ]
-    .spacing(16)
+    .spacing(8)
     .align_y(Alignment::Center);
-    let header = column![
-        lighting_header(
-            "Arrange devices on one effect surface. Drag to move; LEDs take the color under them.",
-            true,
-        ),
-        stream_bar,
-    ]
-    .spacing(16);
-
-    // ── the arrangement scene ──
     let scene = container(canvas_tab::scene_element(
         &app.canvas_layout,
-        &app.canvas_preview,
+        app.canvas_live_preview.then_some(&app.canvas_preview),
         app.canvas_selected.as_deref(),
         colors,
     ))
-    .padding(6)
+    .padding(16)
     .width(Length::Fill)
     .height(Length::Fill)
-    .style(card(colors));
+    .style(boxed(Color::from_rgb8(0x15, 0x18, 0x1C), Color::TRANSPARENT, 0.0, 0.0));
+    let canvas_card = container(column![
+        container(toolbar).padding([12, 14]),
+        rule(),
+        scene,
+        rule(),
+        container(
+            text("Drag to move · click to select · devices take the color of the effect under them.")
+                .size(13)
+                .color(tokens::TEXT_SECONDARY),
+        )
+        .padding([12, 16]),
+    ])
+    .width(Length::Fill)
+    .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD));
 
-    // ── effect picker ──
-    let mut effect_row = column![].spacing(6);
-    for kinds in EffectKind::ALL.chunks(8) {
-        let mut r = row![].spacing(6);
-        for &kind in kinds {
-            r = r.push(
-                button(text(kind.label()).size(12))
-                    .on_press(Message::CanvasEffect(kind))
-                    .padding([6, 10])
-                    .style(segment_style(colors, s.effect == kind)),
-            );
-        }
-        effect_row = effect_row.push(r);
+    // ── which devices take part (switched-off ones are not on the canvas) ──
+    let mut chips = Vec::new();
+    for (i, id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
+        let label = spec.name.replace("ARGB Header ", "Header ");
+        chips.push(
+            button(vcenter(
+                row![shape(canvas_tab::device_color(i), 8.0, tokens::RADIUS_PILL), text(label).size(13)]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+            ))
+            .on_press(Message::CanvasToggleEnabled(id))
+            .height(36)
+            .padding([0, 12])
+            .style(flat_button(
+                if enabled { tokens::SEGMENT_ON } else { Color::TRANSPARENT },
+                tokens::HOVER,
+                if enabled { tokens::TEXT } else { tokens::TEXT_SECONDARY },
+                if enabled { accent } else { tokens::BORDER_CONTROL },
+                tokens::RADIUS_PILL,
+            ))
+            .into(),
+        );
     }
+    let devices_row: Element<'_, Message> = if chips.is_empty() {
+        text("No supported RGB devices detected. See Devices for why.")
+            .size(13)
+            .color(tokens::TEXT_SECONDARY)
+            .into()
+    } else {
+        iced::widget::Row::with_children(chips).spacing(8).wrap().vertical_spacing(8).into()
+    };
 
-    // ── sliders: only the ones the active effect declares, then the
-    // canvas-wide ones ──
-    let mut sliders = row![].spacing(18);
-    if controls_for.speed {
-        sliders = sliders.push(labeled_slider_released(
-            "Speed",
-            format!("{:.1}×", s.speed),
-            0.1..=3.0,
-            s.speed,
-            colors,
-            Message::CanvasSpeed,
-            Some(Message::CanvasDragEnd),
-        ));
-    }
-    if controls_for.scale {
-        sliders = sliders.push(labeled_slider_released(
-            "Scale",
-            format!("{:.1}×", s.scale),
-            0.3..=3.0,
-            s.scale,
-            colors,
-            Message::CanvasScale,
-            Some(Message::CanvasDragEnd),
-        ));
-    }
-    if controls_for.angle {
-        sliders = sliders.push(labeled_slider_released(
-            "Direction",
-            format!("{:.0}°", s.angle),
-            0.0..=360.0,
-            s.angle,
-            colors,
-            Message::CanvasAngle,
-            Some(Message::CanvasDragEnd),
-        ));
-    }
-    sliders = sliders
-        .push(labeled_slider_released(
-            "Brightness",
-            format!("{:.0}%", s.brightness),
-            0.0..=100.0,
-            s.brightness,
-            colors,
-            Message::CanvasBrightness,
-            Some(Message::CanvasDragEnd),
-        ))
-        .push(labeled_slider_released(
-            "FPS",
-            format!("{}", s.fps),
-            5.0..=60.0,
-            s.fps as f32,
-            colors,
-            Message::CanvasFps,
-            Some(Message::CanvasDragEnd),
-        ));
-
-    // (Effect colors are edited on the Effects tab's side panel.)
-
-    // ── layer: a second effect over the main one, plus audio brightness ──
-    let mut layer_row = row![
-        text("Layer on top").size(12).color(muted(colors)),
+    // ── the background stream that runs animated and reactive effects ──
+    let mut layer = row![
+        text("Second effect on top").size(13).color(tokens::TEXT_NAV),
         pick_list(EffectKind::ALL, s.overlay.map(|o| o.effect), |e| {
             Message::CanvasOverlayEffect(Some(e))
         })
         .placeholder("none")
-        .text_size(12),
+        .text_size(13)
+        .padding([8, 12])
+        .style(select_style),
     ]
-    .spacing(8)
+    .spacing(10)
     .align_y(Alignment::Center);
     if let Some(overlay) = s.overlay {
-        layer_row = layer_row.push(
-            button(text("✕").size(11))
-                .on_press(Message::CanvasOverlayEffect(None))
-                .padding([5, 9])
-                .style(segment_style(colors, false)),
-        );
+        layer = layer.push(tool_button("Remove", false, Message::CanvasOverlayEffect(None)));
         for blend in cntrl_core::canvas::Blend::ALL {
-            layer_row = layer_row.push(
-                button(text(blend.label()).size(11))
-                    .on_press(Message::CanvasOverlayBlend(blend))
-                    .padding([5, 9])
-                    .style(segment_style(colors, overlay.blend == blend)),
-            );
+            layer = layer.push(tool_button(blend.label(), overlay.blend == blend, Message::CanvasOverlayBlend(blend)));
         }
-        layer_row = layer_row.push(
-            container(labeled_slider_released(
+        layer = layer.push(
+            container(value_slider(
                 "Opacity",
                 format!("{:.0}%", overlay.opacity),
-                0.0..=100.0,
-                overlay.opacity,
-                colors,
-                Message::CanvasOverlayOpacity,
-                Some(Message::CanvasDragEnd),
+                slider(0.0..=100.0, overlay.opacity, Message::CanvasOverlayOpacity)
+                    .on_release(Message::CanvasDragEnd)
+                    .style(accent_slider(colors)),
             ))
             .width(170),
         );
     }
-    layer_row = layer_row.push(Space::new().width(Length::Fill)).push(
-        checkbox(s.audio_brightness)
-            .label("Brightness follows the music")
-            .on_toggle(Message::CanvasAudioBrightness),
-    );
-
-    // ── device chips: toggle each device's canvas participation. Each chip
-    // carries the same identifying color as the device's border on the canvas ──
-    let mut chips = row![].spacing(8);
-    if !app.canvas_layout.devices.iter().any(|d| d.present) {
-        chips = chips.push(
-            text("No supported RGB devices detected — see the Devices tab for why.")
-                .size(12)
-                .color(muted(colors)),
-        );
-    }
-    for (i, id, spec, enabled) in canvas_tab::placed_specs(&app.canvas_layout) {
-        // Compact names so a fully split chain still fits on one row.
-        let label = spec
-            .name
-            .replace("ARGB Header ", "Header ")
-            .replace("Header 1 ", "H1 ")
-            .replace("Header 2 ", "H2 ");
-        let ident = canvas_tab::device_color(i);
-        chips = chips.push(
-            button(
-                row![
-                    container(Space::new().width(8).height(8)).style(move |_| {
-                        container::Style {
-                            background: Some(ident.into()),
-                            border: iced::Border {
-                                radius: 4.0.into(),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        }
-                    }),
-                    text(label).size(12),
+    let stream_card = container(
+        column![
+            row![
+                caps("DEVICES ON THE LAYOUT"),
+                Space::new().width(Length::Fill),
+                text(app.canvas_status.clone()).size(12).color(tokens::TEXT_MUTED),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            devices_row,
+            rule(),
+            row![
+                column![
+                    caps("BACKGROUND STREAM"),
+                    text(if streaming {
+                        format!("Running {}", stream_name(s.effect))
+                    } else {
+                        "Stopped. Pick an animated or reactive effect to start it.".to_string()
+                    })
+                    .size(13)
+                    .color(tokens::TEXT_SECONDARY),
                 ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            )
-            .on_press(Message::CanvasToggleEnabled(id))
-            .padding([7, 10])
-            .style(segment_style(colors, enabled)),
-        );
-    }
+                .spacing(4)
+                .width(Length::Fill),
+                text("Start at login").size(13).color(tokens::TEXT_NAV),
+                switch(
+                    app.settings.canvas_autostart,
+                    accent,
+                    Some(Message::CanvasAutostart(!app.settings.canvas_autostart)),
+                ),
+                tool_button("Push to keyboard", false, Message::CanvasPushKeyboard),
+                button(vcenter(
+                    text(if streaming { "Stop" } else { "Start" }).size(14).font(tokens::UI_SEMIBOLD)
+                ))
+                .on_press(Message::CanvasStreamToggle)
+                .height(40)
+                .padding([0, 18])
+                .style(flat_button(
+                    accent,
+                    lerp_color(accent, Color::WHITE, 0.12),
+                    tokens::ON_ACCENT,
+                    Color::TRANSPARENT,
+                    tokens::RADIUS_CONTROL,
+                )),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            row![
+                container(value_slider(
+                    "Frames per second",
+                    s.fps.to_string(),
+                    slider(5.0..=60.0, s.fps as f32, Message::CanvasFps)
+                        .on_release(Message::CanvasDragEnd)
+                        .style(accent_slider(colors)),
+                ))
+                .width(220),
+                layer.wrap(),
+            ]
+            .spacing(16)
+            .align_y(Alignment::Center),
+            row![
+                text("Brightness follows the music").size(13).color(tokens::TEXT_NAV).width(Length::Fill),
+                switch(s.audio_brightness, accent, Some(Message::CanvasAudioBrightness(!s.audio_brightness))),
+            ]
+            .spacing(16)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(14),
+    )
+    .padding(20)
+    .width(Length::Fill)
+    .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD));
 
-    // ── ARGB header chains: what's daisy-chained on each header, and how
-    // many LEDs each fan has (AR120 = 8; most rings are 12 or 16) ──
-    let chain_row = |header: &'static str, label: &'static str| {
-        use cntrl_core::canvas::SegmentKind;
-        let segs = app.canvas_layout.chains.header(header);
-        let fans = segs.iter().filter(|s| s.kind == SegmentKind::Fan).count() as u8;
-        let fan_leds = segs.iter().find(|s| s.kind == SegmentKind::Fan).map(|s| s.leds);
-        let strip = app.canvas_layout.chains.strip_leds(header);
-        let total: u32 = segs.iter().map(|s| u32::from(s.leds)).sum();
-        let mut r = row![text(label).size(12).color(muted(&app.colors))].spacing(6);
-        for n in 0..=4u8 {
-            let name = match n {
-                0 => "No fans".to_string(),
-                1 => "1 fan".to_string(),
-                n => format!("{n} fans"),
-            };
-            r = r.push(
-                button(text(name).size(11))
-                    .on_press(Message::CanvasChainFans(header, n))
-                    .padding([5, 9])
-                    .style(segment_style(&app.colors, fans == n)),
-            );
-        }
-        if let Some(cur) = fan_leds {
-            r = r.push(text("·").size(11).color(muted(&app.colors)));
-            for leds in [8u8, 12, 16] {
-                r = r.push(
-                    button(text(format!("{leds}/fan")).size(11))
-                        .on_press(Message::CanvasChainFanLeds(header, leds))
-                        .padding([5, 9])
-                        .style(segment_style(&app.colors, cur == leds)),
-                );
-            }
-        }
-        r = r.push(text("·").size(11).color(muted(&app.colors)));
-        r = r.push(
-            container(labeled_slider_released(
-                "Strip after fans",
-                if strip == 0 { "none".to_string() } else { format!("{strip} LEDs") },
-                0.0..=120.0,
-                f32::from(strip),
-                &app.colors,
-                move |v| Message::CanvasChainStrip(header, v),
-                Some(Message::CanvasDragEnd),
-            ))
-            .width(170),
-        );
-        r = r.push(
-            text(if total == 0 { "empty".to_string() } else { format!("= {total} LEDs") })
-                .size(11)
-                .color(muted(&app.colors)),
-        );
-        r.align_y(Alignment::Center)
-    };
+    scrollable(column![canvas_card.height(canvas_height), stream_card].spacing(16)).into()
+}
 
-    // ── selection controls + per-element trim (SignalRGB-style) ──
+fn canvas_view(app: &App) -> Element<'_, Message> {
+    let colors = &app.colors;
+    let streaming = app.streaming();
+    // The canvas takes the height the controls leave, but never shrinks to
+    // nothing in a short window: below that the column scrolls.
+    let left = iced::widget::responsive(move |size| {
+        const CONTROLS: f32 = 330.0;
+        layout_canvas_column(app, (size.height - CONTROLS).max(360.0))
+    });
+
+    // ── the selected device ──
     let selected = app
         .canvas_selected
         .as_deref()
-        .and_then(|id| app.canvas_layout.device(id));
-    let selected_name = app
-        .canvas_selected
-        .as_deref()
-        .and_then(|id| app.canvas_layout.spec(id))
-        .map(|s| s.name)
-        .unwrap_or_else(|| "none".to_string());
-    let mut sel_controls = row![
-        text(format!("Selected: {selected_name}"))
-            .size(12)
-            .color(muted(colors)),
-        button(text("⟳ 90°").size(12))
-            .on_press(Message::CanvasRotateSelected)
-            .padding([7, 10])
-            .style(segment_style(colors, false)),
-        button(text("−").size(12))
-            .on_press(Message::CanvasScaleSelected(1.0 / 1.15))
-            .padding([7, 12])
-            .style(segment_style(colors, false)),
-        button(text("+").size(12))
-            .on_press(Message::CanvasScaleSelected(1.15))
-            .padding([7, 12])
-            .style(segment_style(colors, false)),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
-    if let Some(d) = selected {
-        sel_controls = sel_controls.push(
-            button(text(if d.reversed { "⇄ Reversed" } else { "⇄ Reverse" }).size(12))
-                .on_press(Message::CanvasDevReverse)
-                .padding([7, 10])
-                .style(segment_style(colors, d.reversed)),
-        );
-    }
-    if selected.is_some() && streaming {
-        sel_controls = sel_controls.push(
-            button(text("Identify").size(12))
-                .on_press(Message::CanvasIdentify)
-                .padding([7, 10])
-                .style(segment_style(colors, app.canvas_identify)),
-        );
-    }
-    sel_controls = sel_controls.push(Space::new().width(Length::Fill));
-    sel_controls = sel_controls.push(
-        button(text("Push to keyboard").size(12))
-            .on_press(Message::CanvasPushKeyboard)
-            .padding([7, 12])
-            .style(segment_style(colors, false)),
-    );
-    sel_controls = sel_controls.push(
-        button(text("Reset layout").size(12))
-            .on_press(Message::CanvasResetLayout)
-            .padding([7, 12])
-            .style(segment_style(colors, false)),
-    );
-
-    // Per-device trim sliders, visible while something is selected.
-    let trim: Element<'_, Message> = match selected {
-        Some(d) => row![
-            labeled_slider_released(
-                "Device brightness",
-                format!("{:.0}%", d.brightness),
-                0.0..=100.0,
-                d.brightness,
-                colors,
-                Message::CanvasDevBrightness,
-                Some(Message::CanvasDragEnd),
-            ),
-            labeled_slider_released(
-                "Hue shift",
-                format!("{:.0}°", d.hue_shift),
-                0.0..=360.0,
-                d.hue_shift,
-                colors,
-                Message::CanvasDevHue,
-                Some(Message::CanvasDragEnd),
-            ),
-            labeled_slider_released(
-                "Saturation",
-                format!("{:.0}%", d.saturation),
-                0.0..=200.0,
-                d.saturation,
-                colors,
-                Message::CanvasDevSaturation,
-                Some(Message::CanvasDragEnd),
-            ),
-        ]
-        .spacing(18)
-        .into(),
-        None => Space::new().height(0).into(),
-    };
-
-    let controls = container(
-        column![
-            row![
-                card_label("EFFECT", colors),
-                Space::new().width(Length::Fill),
-                status_text(&app.canvas_status, colors),
+        .and_then(|id| Some((id, app.canvas_layout.device(id)?, app.canvas_layout.spec(id)?)));
+    let mut aside = column![].spacing(20);
+    match selected {
+        None => {
+            aside = aside
+                .push(
+                    column![
+                        caps("SELECTED"),
+                        text("Nothing").size(20).font(tokens::UI_SEMIBOLD),
+                        text("Click a device on the canvas to place and tune it.")
+                            .size(13)
+                            .color(tokens::TEXT_SECONDARY),
+                    ]
+                    .spacing(2),
+                )
+                .push(chain_box(app, core_canvas::CHAIN_DLED1, "ARGB header 1"))
+                .push(chain_box(app, core_canvas::CHAIN_DLED2, "ARGB header 2"));
+        }
+        Some((id, d, spec)) => {
+            let coord = |label: &'static str, v: f32| {
+                column![
+                    text(label).size(13).color(tokens::TEXT_NAV),
+                    container(text(format!("{v:.0}")).size(14).font(tokens::MONO))
+                        .center_y(40)
+                        .padding([0, 12])
+                        .width(Length::Fill)
+                        .style(boxed(tokens::INSET, tokens::BORDER_CONTROL, 1.0, 8.0)),
+                ]
+                .spacing(6)
+                .width(Length::FillPortion(1))
+            };
+            let turned = d.placement.rotation_deg.rem_euclid(360.0);
+            let mut rotation = row![].spacing(4);
+            for deg in [0.0f32, 90.0, 180.0, 270.0] {
+                let on = (turned - deg).abs() < 1.0;
+                rotation = rotation.push(
+                    button(container(text(format!("{deg:.0}°")).size(14)).center(Length::Fill))
+                        .on_press(Message::CanvasSetRotation(deg))
+                        .width(Length::FillPortion(1))
+                        .height(36)
+                        .padding(0)
+                        .style(flat_button(
+                            if on { tokens::SEGMENT_ON } else { Color::TRANSPARENT },
+                            tokens::HOVER,
+                            if on { tokens::TEXT } else { tokens::TEXT_SECONDARY },
+                            Color::TRANSPARENT,
+                            7.0,
+                        )),
+                );
+            }
+            aside = aside
+                .push(
+                    column![
+                        caps("SELECTED"),
+                        text(spec.name.clone()).size(20).font(tokens::UI_SEMIBOLD),
+                        text(layout_via(id)).size(13).color(tokens::TEXT_SECONDARY),
+                    ]
+                    .spacing(2),
+                )
+                .push(row![coord("X", d.placement.x), coord("Y", d.placement.y)].spacing(12))
+                .push(
+                    column![
+                        text("Rotation").size(13).color(tokens::TEXT_NAV),
+                        container(rotation)
+                            .padding(4)
+                            .style(boxed(tokens::INSET, Color::TRANSPARENT, 0.0, tokens::RADIUS_CONTROL)),
+                    ]
+                    .spacing(6),
+                );
+            if id.starts_with("dled") {
+                let (header, title) = if id.starts_with("dled1") {
+                    (core_canvas::CHAIN_DLED1, "Fan chain on header 1")
+                } else {
+                    (core_canvas::CHAIN_DLED2, "Fan chain on header 2")
+                };
+                aside = aside.push(chain_box(app, header, title));
+            } else {
+                aside = aside.push(
+                    container(row![
+                        text("LEDs").size(14).color(tokens::TEXT_NAV).width(Length::Fill),
+                        text(spec.led_positions.len().to_string()).size(14).font(tokens::MONO),
+                    ])
+                    .padding(16)
+                    .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE)),
+                );
+            }
+            // Not in the mockup, but needed to match real hardware: size on the
+            // canvas, wiring direction, and per-device color trim.
+            let mut fit = row![
+                text("Size").size(14).color(tokens::TEXT_NAV).width(Length::Fill),
+                stepper("−", Some(Message::CanvasScaleSelected(1.0 / 1.15))),
+                stepper("+", Some(Message::CanvasScaleSelected(1.15))),
+                tool_button("Reversed", d.reversed, Message::CanvasDevReverse),
             ]
+            .spacing(4)
+            .align_y(Alignment::Center);
+            if streaming {
+                fit = fit.push(tool_button("Identify", app.canvas_identify, Message::CanvasIdentify));
+            }
+            let trim = |label: &'static str, value: String, range, v: f32, msg: fn(f32) -> Message| {
+                value_slider(
+                    label,
+                    value,
+                    slider(range, v, msg).on_release(Message::CanvasDragEnd).style(accent_slider(colors)),
+                )
+            };
+            aside = aside
+                .push(fit)
+                .push(trim("Brightness", format!("{:.0}%", d.brightness), 0.0..=100.0, d.brightness, Message::CanvasDevBrightness))
+                .push(trim("Hue shift", format!("{:.0}°", d.hue_shift), 0.0..=360.0, d.hue_shift, Message::CanvasDevHue))
+                .push(trim("Saturation", format!("{:.0}%", d.saturation), 0.0..=200.0, d.saturation, Message::CanvasDevSaturation));
+        }
+    }
+    aside = aside.push(
+        text("Basic effects (Static, Off) don’t need a layout. Animated and Reactive effects use it.")
+            .size(13)
+            .color(tokens::TEXT_SECONDARY),
+    );
+    let aside = container(scrollable(aside.padding(iced::Padding { right: 12.0, ..iced::Padding::ZERO })))
+        .padding(20)
+        .width(340)
+        .height(Length::Fill)
+        .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD));
+
+    column![
+        lighting_header(
+            "Place your devices the way they sit in your case, so animated effects flow across them in order.",
+            true,
+        ),
+        row![left, aside].spacing(24).height(Length::Fill),
+    ]
+    .spacing(24)
+    .into()
+}
+
+/// Text link in the mockups' link color ("Change", "Manage").
+fn link<'a>(label: &'a str, tab: ShellTab) -> Element<'a, Message> {
+    button(text(label).size(14).font(tokens::UI_MEDIUM))
+        .on_press(Message::Tab(tab))
+        .padding(0)
+        .style(|_, status| button::Style {
+            text_color: if matches!(status, button::Status::Hovered) {
+                Color::from_rgb8(0xC4, 0xEE, 0xFB)
+            } else {
+                Color::from_rgb8(0x8F, 0xDD, 0xF7)
+            },
+            ..button::Style::default()
+        })
+        .into()
+}
+
+/// Small uppercase heading of a card or section.
+fn caps<'a>(label: &'a str) -> iced::widget::Text<'a> {
+    text(label).size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY)
+}
+
+/// One-line description of a device for the Overview cards.
+fn device_detail(app: &App, kind: TargetKind) -> String {
+    use cntrl_core::canvas::SegmentKind;
+    let ids = layout_ids(app, kind);
+    let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match kind {
+        TargetKind::Keyboard => {
+            let keys = app
+                .canvas_layout
+                .spec(core_canvas::DEV_KEYBOARD)
+                .map_or(0, |s| s.led_positions.len());
+            format!("{keys} keys · per-key RGB")
+        }
+        TargetKind::Gpu => "1 zone".into(),
+        TargetKind::Corsair => plural(ids.len(), "module"),
+        TargetKind::Ite => {
+            let chains = &app.canvas_layout.chains;
+            let fans = [core_canvas::CHAIN_DLED1, core_canvas::CHAIN_DLED2]
+                .into_iter()
+                .flat_map(|h| chains.header(h))
+                .filter(|s| s.kind == SegmentKind::Fan)
+                .count();
+            let zones = ids.iter().filter(|id| id.starts_with("mbzone")).count();
+            format!("{} · {}", plural(fans, "fan"), plural(zones, "board zone"))
+        }
+    }
+}
+
+fn overview_view(app: &App) -> Element<'_, Message> {
+    use cntrl_core::devices::DeviceStatus;
+    use cntrl_core::fan_curves::FanMode;
+    let accent = app.accent();
+    let card_style = || boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD);
+
+    let header = row![
+        page_title("Overview", "What CNTRL is controlling right now."),
+        Space::new().width(Length::Fill),
+        outline_button(
+            row![
+                lucide(ICON_POWER, 16.0, tokens::TEXT),
+                text("All lights off").size(14).font(tokens::UI_MEDIUM),
+            ]
+            .spacing(8)
             .align_y(Alignment::Center),
-            effect_row,
-            sliders,
-            layer_row,
-            hairline_divider(colors),
-            row![card_label("DEVICES", colors), chips.wrap()]
-                .spacing(14)
+            Message::AllLightsOff,
+        ),
+    ]
+    .spacing(16)
+    .align_y(Alignment::End);
+
+    // ── lighting now ──
+    let current = app.current_fx();
+    let (name, facts) = match current {
+        Fx::Stream(kind) => (
+            stream_name(kind).to_string(),
+            format!(
+                "runs in the background · {:.0}% brightness",
+                app.canvas_layout.settings.brightness
+            ),
+        ),
+        Fx::Device(EFFECT_ID_OFF) => ("Off".to_string(), "lights are off".to_string()),
+        Fx::Device(id) => (
+            effect_name(id),
+            format!("{} · {}% brightness", rgb_to_hex(app.current_color).to_uppercase(), app.brightness),
+        ),
+    };
+    // The swatch sits in a ring: a gap in the sidebar color, then a hairline.
+    let swatch = container(
+        container(fx_picture(app, current, 0, 72.0, 18.0.into(), false))
+            .width(72)
+            .padding(0),
+    )
+    .padding(6)
+    .style(boxed(tokens::SIDEBAR, tokens::BORDER_CONTROL, 1.0, 24.0));
+    let mut where_live = Vec::new();
+    for kind in app.target_kinds() {
+        let lit = match current {
+            Fx::Stream(_) => !layout_ids(app, kind).is_empty(),
+            fx => app.targets.get(kind) && (!fx.keyboard_only() || kind == TargetKind::Keyboard),
+        };
+        let label = match kind {
+            TargetKind::Keyboard => "Keyboard",
+            TargetKind::Ite => "Fans & board",
+            TargetKind::Gpu => "Graphics card",
+            TargetKind::Corsair => "RAM",
+        };
+        where_live.push(
+            container(
+                row![
+                    shape(if lit { accent } else { tokens::TEXT_DISABLED }, 8.0, tokens::RADIUS_PILL),
+                    text(label).size(13).color(if lit { tokens::TEXT } else { tokens::TEXT_MUTED }),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([6, 12])
+            .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL))
+            .into(),
+        );
+    }
+    let lighting = container(
+        column![
+            row![caps("LIGHTING"), Space::new().width(Length::Fill), link("Change", ShellTab::Lighting)]
                 .align_y(Alignment::Center),
             row![
-                card_label("ARGB CHAINS", colors),
+                swatch,
                 column![
-                    chain_row(cntrl_core::canvas::CHAIN_DLED1, "Header 1:"),
-                    chain_row(cntrl_core::canvas::CHAIN_DLED2, "Header 2:"),
+                    text(name).size(26).font(tokens::UI_SEMIBOLD),
+                    text(facts).size(13).font(tokens::MONO).color(tokens::TEXT_SECONDARY),
                 ]
-                .spacing(6),
+                .spacing(2),
             ]
-            .spacing(18)
+            .spacing(20)
             .align_y(Alignment::Center),
-            sel_controls,
-            trim,
+            iced::widget::Row::with_children(where_live).spacing(8).wrap().vertical_spacing(8),
         ]
-        .spacing(12),
+        .spacing(22),
     )
-    .padding(18)
-    .width(Length::Fill)
-    .style(card(colors));
+    .padding(24)
+    .width(Length::FillPortion(1))
+    .style(card_style());
 
-    column![header, scene, controls].spacing(14).into()
+    // ── cooling now ──
+    let cfg = &app.fan_curve_cfg;
+    let mut modes = row![].spacing(4);
+    for mode in FanMode::ALL {
+        let on = cfg.mode == mode && cfg.enabled;
+        modes = modes.push(
+            button(container(text(mode.label()).size(14).font(tokens::UI_MEDIUM)).center(Length::Fill))
+                .on_press(Message::FanSetMode(mode))
+                .width(Length::FillPortion(1))
+                .height(tokens::TARGET)
+                .padding(0)
+                .style(flat_button(
+                    if on { accent } else { Color::TRANSPARENT },
+                    if on { accent } else { tokens::HOVER },
+                    if on { tokens::ON_ACCENT } else { tokens::TEXT_NAV },
+                    Color::TRANSPARENT,
+                    9.0,
+                )),
+        );
+    }
+    let sensors = &app.fan_discovery.sensors;
+    let temp = |name: &str| {
+        sensors
+            .iter()
+            .find(|s| sensor_name(s) == name)
+            .and_then(|s| app.fan_readings.temps_c.get(&s.id))
+            .map_or("—".to_string(), |t| format!("{t:.0}°C"))
+    };
+    // Third figure: the pump if there is one, else the CPU fan.
+    let chans = &app.fan_discovery.channels;
+    let spinner = chans
+        .iter()
+        .find(|c| app.assignment_for(&c.id).map_or(c.is_pump(), |a| a.is_pump(c)))
+        .or_else(|| chans.iter().find(|c| c.label.eq_ignore_ascii_case("CPU_FAN")))
+        .or_else(|| chans.iter().find(|c| c.chip != "amdgpu"));
+    let stat = |label: String, value: String| {
+        column![
+            text(label).size(12).color(tokens::TEXT_SECONDARY),
+            text(value).size(24).font(tokens::MONO),
+        ]
+        .spacing(2)
+        .width(Length::FillPortion(1))
+    };
+    let mut stats = row![stat("CPU".into(), temp("CPU")), stat("GPU".into(), temp("Graphics card"))]
+        .spacing(12);
+    if let Some(ch) = spinner {
+        let rpm = app.fan_readings.rpm.get(&ch.id).map_or("—".to_string(), |r| format!("{r} rpm"));
+        stats = stats.push(stat(fan_name(app, ch), rpm));
+    }
+    let mut cooling_body = column![
+        row![caps("COOLING"), Space::new().width(Length::Fill), link("Fine-tune", ShellTab::Fans)]
+            .align_y(Alignment::Center),
+        container(modes)
+            .padding(4)
+            .style(boxed(tokens::INSET, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE)),
+        stats,
+    ]
+    .spacing(22);
+    if !cfg.enabled {
+        cooling_body = cooling_body.push(
+            text("Your BIOS is controlling the fans. Pick a mode to let CNTRL do it.")
+                .size(13)
+                .color(tokens::TEXT_SECONDARY),
+        );
+    }
+    let cooling = container(cooling_body)
+        .padding(24)
+        .width(Length::FillPortion(1))
+        .style(card_style());
+
+    // ── devices ──
+    let mut devices = row![].spacing(16);
+    for d in &app.devices {
+        let kind = TargetKind::from_device_kind(d.kind);
+        let what = match kind {
+            TargetKind::Keyboard => "Keyboard",
+            TargetKind::Ite => "Motherboard",
+            TargetKind::Gpu => "Graphics card",
+            TargetKind::Corsair => "Memory",
+        };
+        let (dot, tone) = match d.status {
+            DeviceStatus::Ready => (tokens::SUCCESS, Color::from_rgb8(0x7D, 0xD8, 0xA9)),
+            DeviceStatus::Blocked => (tokens::WARNING, tokens::WARNING),
+            DeviceStatus::Absent => (tokens::TEXT_DISABLED, tokens::TEXT_MUTED),
+        };
+        devices = devices.push(
+            button(
+                column![
+                    row![
+                        text(what).size(12).color(tokens::TEXT_SECONDARY),
+                        Space::new().width(Length::Fill),
+                        row![shape(dot, 6.0, tokens::RADIUS_PILL), text(d.status.label()).size(12).color(tone)]
+                            .spacing(6)
+                            .align_y(Alignment::Center),
+                    ]
+                    .align_y(Alignment::Center),
+                    column![
+                        text(d.name.clone()).size(16).font(tokens::UI_SEMIBOLD),
+                        text(device_detail(app, kind)).size(13).color(tokens::TEXT_SECONDARY),
+                    ]
+                    .spacing(2),
+                    container(Space::new().width(Length::Fill).height(6)).style(boxed(
+                        Color { a: 0.85, ..accent },
+                        Color::TRANSPARENT,
+                        0.0,
+                        tokens::RADIUS_PILL,
+                    )),
+                ]
+                .spacing(14),
+            )
+            .on_press(Message::Tab(ShellTab::Devices))
+            .width(Length::FillPortion(1))
+            .padding(18)
+            .style(flat_button(tokens::SURFACE, tokens::HOVER, tokens::TEXT, tokens::BORDER, 14.0)),
+        );
+    }
+    let device_section = column![
+        row![caps("DEVICES"), Space::new().width(Length::Fill), link("Manage", ShellTab::Devices)]
+            .align_y(Alignment::Center),
+        devices,
+    ]
+    .spacing(14);
+
+    column![
+        header,
+        scrollable(column![row![lighting, cooling].spacing(20), device_section].spacing(28))
+            .height(Length::Fill),
+    ]
+    .spacing(28)
+    .into()
 }
 
 /// On/off switch from the handoff (52×32). `None` draws it disabled.
@@ -3427,7 +3706,7 @@ fn device_zones(app: &App, kind: TargetKind) -> Vec<String> {
                 .canvas_layout
                 .spec(core_canvas::DEV_KEYBOARD)
                 .map_or(0, |s| s.led_positions.len());
-            vec![format!("{keys} key LEDs"), "4 onboard profiles".into()]
+            vec![format!("{keys} keys"), "4 onboard profiles".into()]
         }
         TargetKind::Gpu => vec!["1 zone".into()],
         TargetKind::Corsair => (1..=ids.len()).map(|n| format!("Module {n}")).collect(),
@@ -4259,10 +4538,6 @@ fn default_sensor_for(app: &App, channel_id: &str) -> Option<String> {
         cpu().or_else(own_chip)
     };
     pick.or_else(|| sensors.first()).map(|s| s.id.clone())
-}
-
-fn status_text<'a>(status: &'a str, colors: &theme::ThemeColors) -> Element<'a, Message> {
-    text(status).size(13).color(muted(colors)).into()
 }
 
 
