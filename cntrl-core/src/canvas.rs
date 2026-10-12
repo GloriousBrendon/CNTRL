@@ -21,6 +21,7 @@ pub const CANVAS_H: f32 = 90.0;
 // ── framebuffer ──────────────────────────────────────────────────────
 
 /// RGB framebuffer effects render into; LEDs sample out of it.
+#[derive(Debug, Clone)]
 pub struct Frame {
     pub width: usize,
     pub height: usize,
@@ -610,6 +611,8 @@ pub struct EffectSettings {
     pub overlay: Option<Overlay>,
     /// Scale the whole canvas brightness with the music's loudness.
     pub audio_brightness: bool,
+    /// Monitor Screen Ambient follows (`DP-1`); empty is the whole desktop.
+    pub screen_output: String,
 }
 
 impl Default for EffectSettings {
@@ -627,6 +630,7 @@ impl Default for EffectSettings {
             saved: Default::default(),
             overlay: None,
             audio_brightness: false,
+            screen_output: String::new(),
         }
     }
 }
@@ -676,6 +680,11 @@ impl EffectSettings {
         self.audio_brightness
             || self.effect.uses_audio()
             || self.overlay.is_some_and(|o| o.effect.uses_audio())
+    }
+
+    /// Does anything in these settings show the screen?
+    pub fn needs_screen(&self) -> bool {
+        self.effect.uses_screen() || self.overlay.is_some_and(|o| o.effect.uses_screen())
     }
 
     /// Parameters for an effect that isn't the active one: its saved tuning,

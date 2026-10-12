@@ -173,8 +173,8 @@ T21 colour ── T22 basic effects ── (T26, T27, T28 parity)
 - [x] Task 30: Effect inputs (live data into effects)
 - [x] Task 31: Audio capture to frequency bands
 - [x] Task 32: Audio effects
-- [ ] Task 33: Screen capture to a canvas frame
-- [ ] Task 34: Screen Ambient effect
+- [x] Task 33: Screen capture to a canvas frame
+- [x] Task 34: Screen Ambient effect
 
 ### Checkpoint E: dynamic canvas
 

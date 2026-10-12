@@ -846,6 +846,14 @@ Hyprland ships) costs 114 ms and a full CPU core per frame for one monitor, so a
 portal with a PipeWire video stream, which needs two new crates (`ashpd`, `pipewire`) and
 their system build dependencies. Not started; needs your go-ahead on the dependencies.
 
+**Status (2026-10-12): done another way, no new crates.** The spike blamed `grim` wrongly: the
+cost was its image scaling and PNG encoding. An unscaled, uncompressed grab (`grim -t ppm`) takes
+15 ms and 6 ms of CPU per 1440p monitor, and CNTRL shrinks it itself (`cntrl-core/src/screen.rs`).
+Measured on this machine with one monitor at 10 grabs a second: the daemon plus `grim` use 11% of
+one core while streaming Screen Ambient (Rainbow Wave uses 21%). Not met: 30 grabs a second and
+the 5% target; no permission prompt exists on this route. Works on wlroots compositors only.
+Check: `cargo test -p cntrl-core live_grab -- --ignored` writes `/tmp/cntrl-screen.ppm`.
+
 ## Task 34: Screen Ambient effect
 
 **Description:** Show the captured screen on the canvas with smoothing,
@@ -858,6 +866,12 @@ saturation boost and a choice of full screen or edges only.
 
 **Verification:**
 - [ ] Manual: play a video with strong colour changes
+
+**Status (2026-10-12):** effect `screen` added; picture verified, LEDs not watched by anyone
+yet. Smoothing is a blend of each grab into the last (black stays black). Works as base or as the
+layer on top. Not built: saturation boost (each device already has a saturation trim), edges-only
+mode, a monitor picker in the panel (`screen_output` in the layout file), and a live preview in
+the panel (it shows black for this effect).
 
 **Dependencies:** Task 33, Task 29
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`, `cntrl-iced/src/app.rs`

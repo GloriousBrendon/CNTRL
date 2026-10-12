@@ -38,6 +38,8 @@ pub enum EffectKind {
     SpectrumBars,
     AudioWave,
     BeatPulse,
+    // Screen-reactive
+    ScreenAmbient,
 }
 
 const WHITE: [u8; 3] = [255, 255, 255];
@@ -70,7 +72,7 @@ const fn meta(slug: &'static str, label: &'static str, colors: usize) -> Meta {
 }
 
 impl EffectKind {
-    pub const ALL: [EffectKind; 26] = [
+    pub const ALL: [EffectKind; 27] = [
         EffectKind::Solid,
         EffectKind::Gradient,
         EffectKind::RadialGradient,
@@ -97,12 +99,18 @@ impl EffectKind {
         EffectKind::SpectrumBars,
         EffectKind::AudioWave,
         EffectKind::BeatPulse,
+        EffectKind::ScreenAmbient,
     ];
 
     /// Reacts to system audio (the stream captures it only while one is active).
     pub fn uses_audio(self) -> bool {
         use EffectKind::*;
         matches!(self, SpectrumBars | AudioWave | BeatPulse)
+    }
+
+    /// Shows the screen (the stream captures it only while one is active).
+    pub fn uses_screen(self) -> bool {
+        self == EffectKind::ScreenAmbient
     }
 
     fn meta(self) -> Meta {
@@ -134,6 +142,7 @@ impl EffectKind {
             SpectrumBars => Meta { speed: false, scale: false, ..meta("bars", "Spectrum Bars", 2) },
             AudioWave => Meta { speed: false, scale: false, ..meta("audio-wave", "Audio Wave", 2) },
             BeatPulse => Meta { speed: false, ..meta("beat", "Beat Pulse", 1) },
+            ScreenAmbient => Meta { speed: false, scale: false, ..meta("screen", "Screen Ambient", 0) },
         }
     }
 
@@ -234,9 +243,11 @@ impl Default for EffectParams {
 
 /// Live data an effect may react to. Everything defaults to "nothing there"
 /// (silence), so effects that ignore it stay pure functions of time.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct EffectInput {
     pub audio: crate::audio::AudioLevels,
+    /// The screen, already shrunk to the canvas; `None` when not captured.
+    pub screen: Option<std::sync::Arc<Frame>>,
 }
 
 /// Render one frame of `kind` at time `t` (seconds since stream start).
@@ -246,6 +257,15 @@ pub fn render(kind: EffectKind, frame: &mut Frame, t: f32, params: &EffectParams
         SpectrumBars => spectrum_bars(frame, params, input),
         AudioWave => audio_wave(frame, params, input),
         BeatPulse => beat_pulse(frame, params, input),
+        ScreenAmbient => match &input.screen {
+            Some(screen) => fill(frame, |nx, ny| {
+                let x = ((nx * screen.width as f32) as usize).min(screen.width - 1);
+                let y = ((ny * screen.height as f32) as usize).min(screen.height - 1);
+                screen.px[y * screen.width + x]
+            }),
+            // No picture (capture failed or not running): dark, not stale.
+            None => fill(frame, |_, _| [0, 0, 0]),
+        },
         RainbowWave => rainbow_wave(frame, t, params),
         Plasma => plasma(frame, t, params),
         Ripple => ripple(frame, t, params),
@@ -791,6 +811,9 @@ mod tests {
         let mut input = EffectInput::default();
         input.audio.bands = std::array::from_fn(|i| 1.0 - i as f32 / 20.0);
         input.audio.level = 0.6;
+        let mut screen = Frame::new(8, 4);
+        screen.px.fill([200, 120, 40]);
+        input.screen = Some(std::sync::Arc::new(screen));
         input
     }
 
@@ -832,6 +855,24 @@ mod tests {
     }
 
     #[test]
+    fn screen_ambient_shows_the_captured_screen() {
+        let params = EffectParams::default();
+        let mut f = Frame::new(4, 2);
+        render(EffectKind::ScreenAmbient, &mut f, 0.0, &params, &EffectInput::default());
+        assert!(f.px.iter().all(|p| *p == [0, 0, 0]));
+
+        // Left half red, right half blue, on a screen frame of another size.
+        let mut screen = Frame::new(8, 2);
+        for (i, px) in screen.px.iter_mut().enumerate() {
+            *px = if i % 8 < 4 { [255, 0, 0] } else { [0, 0, 255] };
+        }
+        let input = EffectInput { screen: Some(std::sync::Arc::new(screen)), ..Default::default() };
+        render(EffectKind::ScreenAmbient, &mut f, 0.0, &params, &input);
+        assert_eq!(f.px[0], [255, 0, 0]);
+        assert_eq!(f.px[3], [0, 0, 255]);
+    }
+
+    #[test]
     fn effects_animate_over_time() {
         let params = EffectParams::default();
         for kind in EffectKind::ALL {
@@ -841,7 +882,7 @@ mod tests {
             render(kind, &mut b, 1.0, &params, &loud());
             // Solid has nothing to animate; audio effects follow the sound,
             // which this test holds constant.
-            if kind == EffectKind::Solid || kind.uses_audio() {
+            if kind == EffectKind::Solid || kind.uses_audio() || kind.uses_screen() {
                 assert_eq!(a.px, b.px, "{kind:?} must not depend on time");
                 continue;
             }

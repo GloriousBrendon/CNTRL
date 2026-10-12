@@ -2,6 +2,7 @@
 //! No UI dependencies.
 
 pub mod audio;
+pub mod screen;
 pub mod canvas;
 pub mod canvas_effects;
 pub mod canvas_stream;

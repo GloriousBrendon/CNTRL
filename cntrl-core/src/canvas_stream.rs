@@ -330,6 +330,8 @@ fn worker(
     );
     let mut audio: Option<crate::audio::AudioCapture> = None;
     let mut audio_retry_at = Instant::now();
+    let mut screen: Option<(String, crate::screen::ScreenCapture)> = None;
+    let mut screen_retry_at = Instant::now();
     let board_zones = canvas::board_zones();
     // LED slot per layout key (constant; computed once).
     let kb_slots = crate::mchose_direct::layout_led_indices();
@@ -357,8 +359,22 @@ fn worker(
                 }
             }
         }
+        // Same for the screen; a changed monitor restarts the capture.
+        if !s.needs_screen() || screen.as_ref().is_some_and(|(o, _)| *o != s.screen_output) {
+            screen = None;
+        }
+        if s.needs_screen() && screen.is_none() && Instant::now() >= screen_retry_at {
+            match crate::screen::ScreenCapture::start(&s.screen_output) {
+                Ok(capture) => screen = Some((s.screen_output.clone(), capture)),
+                Err(e) => {
+                    screen_retry_at = Instant::now() + RETRY_AFTER;
+                    stats.lock().expect("stream stats").last_error = Some(e);
+                }
+            }
+        }
         let input = canvas_effects::EffectInput {
             audio: audio.as_ref().map(|a| a.levels()).unwrap_or_default(),
+            screen: screen.as_ref().map(|(_, c)| c.frame()),
         };
         let t = t0.elapsed().as_secs_f32();
         s.render_into(&mut frame, t, &input);
