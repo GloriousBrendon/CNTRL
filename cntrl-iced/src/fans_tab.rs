@@ -29,6 +29,8 @@ pub struct CurveScene<'a> {
     pub points: &'a [CurvePoint],
     /// Current smoothed temperature for this curve's sensor (draws a marker).
     pub current_temp: Option<f32>,
+    /// False shows a preset: the points cannot be moved.
+    pub editable: bool,
     pub colors: &'a ThemeColors,
 }
 
@@ -85,6 +87,9 @@ impl icanvas::Program<Message> for CurveScene<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<icanvas::Action<Message>> {
+        if !self.editable {
+            return None;
+        }
         let plot = plot_rect(bounds);
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
@@ -253,6 +258,9 @@ impl icanvas::Program<Message> for CurveScene<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
+        if !self.editable {
+            return mouse::Interaction::default();
+        }
         if state.drag.is_some() {
             return mouse::Interaction::Grabbing;
         }
@@ -270,12 +278,14 @@ pub fn curve_editor<'a>(
     curve_id: String,
     points: &'a [CurvePoint],
     current_temp: Option<f32>,
+    editable: bool,
     colors: &'a ThemeColors,
 ) -> Element<'a, Message> {
     Canvas::new(CurveScene {
         curve_id,
         points,
         current_temp,
+        editable,
         colors,
     })
     .width(Length::Fill)

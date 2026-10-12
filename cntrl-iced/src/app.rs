@@ -182,29 +182,6 @@ fn accent_slider(colors: &theme::ThemeColors) -> impl Fn(&Theme, slider::Status)
     }
 }
 
-/// A colour swatch button: filled with `rgb`, ringed in accent when selected.
-fn swatch_button_style(
-    rgb: (u8, u8, u8),
-    selected: bool,
-    accent: Color,
-) -> impl Fn(&Theme, button::Status) -> button::Style {
-    let fill = Color::from_rgb8(rgb.0, rgb.1, rgb.2);
-    move |theme, status| {
-        let mut s = button::secondary(theme, status);
-        s.background = Some(fill.into());
-        s.border = iced::Border {
-            radius: 9.0.into(),
-            width: if selected { 2.5 } else { 1.0 },
-            color: if selected {
-                accent
-            } else {
-                Color::from_rgba(1.0, 1.0, 1.0, 0.18)
-            },
-        };
-        s
-    }
-}
-
 fn nav_button_style(
     colors: &theme::ThemeColors,
     active: bool,
@@ -387,6 +364,8 @@ struct App {
     apply_busy: bool,
     /// Sidebar profile list is open.
     profile_menu: bool,
+    /// Gallery stills of the streamed effects (rendered once).
+    fx_thumbs: Vec<(EffectKind, iced::widget::image::Handle)>,
     /// The background daemon answers on its socket.
     engine_running: bool,
     tab: ShellTab,
@@ -491,6 +470,7 @@ impl App {
             apply_pending: None,
             apply_busy: false,
             profile_menu: false,
+            fx_thumbs: stream_thumbs(),
             engine_running: cntrl_core::ipc::socket_path().exists(),
             tab: ShellTab::from_env(),
             effect_id,
@@ -701,8 +681,8 @@ pub(crate) enum Message {
     ApplyTick,
     /// A slider was released: write its value now.
     LightingCommit,
-    /// Pick an effect the background service renders (music, screen).
-    LightingReactive(EffectKind),
+    /// Pick an effect the background service renders and streams.
+    LightingStream(EffectKind),
     ToggleAllTargets,
     ProfileMenu,
     Slot(u8),
@@ -741,8 +721,8 @@ pub(crate) enum Message {
     CanvasIdentify,
     /// Pick which effect color the HSL sliders edit.
     CanvasColorSelect(usize),
-    /// (0 hue° | 1 saturation% | 2 lightness%, value) for the selected color.
-    CanvasColorHsl(u8, f32),
+    /// Set the selected effect color; `true` also saves (a click, not a drag).
+    CanvasColorSet((u8, u8, u8), bool),
     CanvasThemeAccent(bool),
     /// Daemon starts the stream at login.
     CanvasAutostart(bool),
@@ -778,10 +758,10 @@ pub(crate) enum Message {
     /// Change the sensor a channel's curve reads from.
     FanSetSensor(String, String),
     FanSetAlsoSensor(String, Option<String>),
+    /// Silent / Balanced / Performance / Custom.
+    FanSetMode(cntrl_core::fan_curves::FanMode),
     /// Min duty floor for a channel (percent).
     FanMinDuty(String, f32),
-    /// Max duty ceiling for a channel (percent).
-    FanMaxDuty(String, f32),
 }
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
@@ -840,7 +820,7 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        Message::LightingReactive(kind) => {
+        Message::LightingStream(kind) => {
             let _ = update_inner(app, Message::CanvasEffect(kind));
             if app.streaming() {
                 Task::none()
@@ -914,14 +894,10 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             app.profile = doc.clone();
             let slot = app.active_slot;
             let targets = app.targets;
-            // On-device animations exist on the keyboard only.
-            let pc_rgb = targets.any_pc() && !lighting_modes::is_preset_effect_id(app.effect_id);
+            // Keyboard-only effects leave the other devices on what they show.
+            let pc_rgb = targets.any_pc() && !Fx::Device(app.effect_id).keyboard_only();
             if !targets.keyboard && !pc_rgb {
-                app.status = if targets.any_pc() {
-                    "This effect runs on the keyboard only".into()
-                } else {
-                    "No devices selected".into()
-                };
+                // Nothing to write; the Lighting footer says why.
                 return Task::none();
             }
             app.apply_busy = true;
@@ -1068,17 +1044,15 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             app.select_canvas_color(i);
             Task::none()
         }
-        Message::CanvasColorHsl(part, v) => {
-            match part {
-                0 => app.canvas_hsl.0 = v,
-                1 => app.canvas_hsl.1 = v / 100.0,
-                _ => app.canvas_hsl.2 = v / 100.0,
-            }
-            let (r, g, b) = hsl_to_rgb(app.canvas_hsl.0, app.canvas_hsl.1, app.canvas_hsl.2);
+        Message::CanvasColorSet((r, g, b), save) => {
             if let Some(c) = app.canvas_layout.settings.palette.get_mut(app.canvas_color_idx) {
                 *c = [r, g, b];
             }
+            app.canvas_hsl = rgb_to_hsl_f32(r, g, b);
             app.sync_stream();
+            if save {
+                app.save_canvas_layout();
+            }
             Task::none()
         }
         Message::CanvasThemeAccent(on) => {
@@ -1351,6 +1325,29 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             app.save_fan_cfg();
             Task::none()
         }
+        Message::FanSetMode(mode) => {
+            app.fan_curve_cfg.mode = mode;
+            // First use: a mode is meant for every fan, so start following the
+            // CPU on each motherboard header. Later picks leave fans alone
+            // that were handed back to the BIOS on purpose.
+            if app.fan_curve_cfg.assignments.iter().all(|a| a.channel_id.starts_with("amdgpu")) {
+                use cntrl_core::fan_control::FanChannelStatus::Controllable;
+                let todo: Vec<(String, String)> = app
+                    .fan_discovery
+                    .channels
+                    .iter()
+                    .filter(|c| c.chip != "amdgpu" && c.status == Controllable)
+                    .filter_map(|c| Some((c.id.clone(), default_sensor_for(app, &c.id)?)))
+                    .collect();
+                let keep = app.fan_selected.clone();
+                for (channel, sensor) in todo {
+                    let _ = update_inner(app, Message::FanCreateAssignment(channel, sensor));
+                }
+                app.fan_selected = keep;
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
         Message::FanRemoveAssignment(channel_id) => {
             let curve_id = App::curve_id_for(&channel_id);
             app.fan_curve_cfg.curves.retain(|c| c.id != curve_id);
@@ -1428,21 +1425,6 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 a.min_duty_pct = v.round().clamp(0.0, 100.0) as u8;
                 if a.min_duty_pct > a.max_duty_pct {
                     a.max_duty_pct = a.min_duty_pct;
-                }
-            }
-            app.save_fan_cfg();
-            Task::none()
-        }
-        Message::FanMaxDuty(channel_id, v) => {
-            if let Some(a) = app
-                .fan_curve_cfg
-                .assignments
-                .iter_mut()
-                .find(|a| a.channel_id == channel_id)
-            {
-                a.max_duty_pct = v.round().clamp(0.0, 100.0) as u8;
-                if a.max_duty_pct < a.min_duty_pct {
-                    a.min_duty_pct = a.max_duty_pct;
                 }
             }
             app.save_fan_cfg();
@@ -1567,14 +1549,24 @@ fn view(app: &App) -> Element<'_, Message> {
     panel_view(app)
 }
 
-// Nerd Font (Material Design Icons) glyphs.
-const ICON_LIGHTING: &str = "\u{F05A8}"; // md-white_balance_sunny
-const ICON_FANS: &str = "\u{F0210}"; // md-fan
-const ICON_DEVICES: &str = "\u{F061A}"; // md-chip
-const ICON_SYSTEM: &str = "\u{F0379}"; // md-monitor
-const ICON_SETTINGS: &str = "\u{F0493}"; // md-cog
-const ICON_CHECK: &str = "\u{F012C}"; // md-check
-const ICON_UNFOLD: &str = "\u{F054F}"; // md-unfold_more_horizontal
+// Lucide icons (ISC, see resources/icons/LUCIDE-LICENSE).
+const ICON_LIGHTING: &[u8] = include_bytes!("../../resources/icons/sun.svg");
+const ICON_FANS: &[u8] = include_bytes!("../../resources/icons/fan.svg");
+const ICON_DEVICES: &[u8] = include_bytes!("../../resources/icons/cpu.svg");
+const ICON_SYSTEM: &[u8] = include_bytes!("../../resources/icons/monitor.svg");
+const ICON_SETTINGS: &[u8] = include_bytes!("../../resources/icons/settings.svg");
+const ICON_CHECK: &[u8] = include_bytes!("../../resources/icons/check.svg");
+const ICON_UNFOLD: &[u8] = include_bytes!("../../resources/icons/chevrons-up-down.svg");
+const ICON_WARNING: &[u8] = include_bytes!("../../resources/icons/triangle-alert.svg");
+
+/// A Lucide icon drawn `size` px square in `color`.
+fn lucide(bytes: &'static [u8], size: f32, color: Color) -> Element<'static, Message> {
+    iced::widget::svg(iced::widget::svg::Handle::from_memory(bytes))
+        .width(size)
+        .height(size)
+        .style(move |_, _| iced::widget::svg::Style { color: Some(color) })
+        .into()
+}
 
 /// Filled, optionally outlined box: the base of cards, chips, dots and thumbs.
 fn boxed(
@@ -1675,7 +1667,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             ]
             .spacing(1)
             .width(Length::Fill),
-            icon(ICON_UNFOLD, 16, tokens::TEXT_MUTED),
+            lucide(ICON_UNFOLD, 16.0, tokens::TEXT_MUTED),
         ]
         .spacing(10)
         .align_y(Alignment::Center),
@@ -1699,7 +1691,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
             let mut line = row![text(format!("Profile {}", slot + 1)).size(14).width(Length::Fill)]
                 .align_y(Alignment::Center);
             if on {
-                line = line.push(icon(ICON_CHECK, 16, accent));
+                line = line.push(lucide(ICON_CHECK, 16.0, accent));
             }
             profile = profile.push(
                 button(vcenter(line))
@@ -1721,7 +1713,7 @@ fn sidebar(app: &App) -> Element<'_, Message> {
     let lighting_on = matches!(app.tab, ShellTab::Lighting | ShellTab::Canvas);
     let system = container(
         row![
-            icon(ICON_SYSTEM, 20, tokens::TEXT_DISABLED),
+            lucide(ICON_SYSTEM, 20.0, tokens::TEXT_DISABLED),
             text("System").size(14).color(tokens::TEXT_DISABLED).width(Length::Fill),
             container(text("Soon").size(11).color(tokens::TEXT_MUTED))
                 .padding([2, 8])
@@ -1796,7 +1788,7 @@ fn profile_name(app: &App) -> String {
 }
 
 fn nav_item<'a>(
-    glyph: &'a str,
+    glyph: &'static [u8],
     label: &'a str,
     active: bool,
     accent: Color,
@@ -1805,7 +1797,7 @@ fn nav_item<'a>(
     let fg = if active { tokens::TEXT } else { tokens::TEXT_NAV };
     button(vcenter(
         row![
-            icon(glyph, 20, if active { accent } else { fg }),
+            lucide(glyph, 20.0, if active { accent } else { fg }),
             text(label)
                 .size(14)
                 .font(if active { tokens::UI_SEMIBOLD } else { tokens::UI })
@@ -1844,18 +1836,7 @@ fn effect_name(id: i32) -> String {
     }
 }
 
-fn labeled_slider<'a>(
-    label: &'a str,
-    value_label: String,
-    range: std::ops::RangeInclusive<f32>,
-    value: f32,
-    colors: &theme::ThemeColors,
-    on_change: impl Fn(f32) -> Message + 'a,
-) -> Element<'a, Message> {
-    labeled_slider_released(label, value_label, range, value, colors, on_change, None)
-}
-
-/// `labeled_slider` that also reports when the drag ends — for values that
+/// Labelled slider that also reports when the drag ends — for values that
 /// update live but are only worth writing to disk once.
 fn labeled_slider_released<'a>(
     label: &'a str,
@@ -1940,14 +1921,18 @@ fn lighting_tabs(layout: bool) -> Element<'static, Message> {
     .into()
 }
 
-/// Page title, one-line explanation and the Effects / Layout switch.
+/// Page title and one-line explanation, as on every redesigned screen.
+fn page_title<'a>(title: &'a str, caption: &'a str) -> iced::widget::Column<'a, Message> {
+    column![
+        text(title).size(28).font(tokens::UI_SEMIBOLD),
+        text(caption).size(14).color(tokens::TEXT_SECONDARY),
+    ]
+    .spacing(4)
+}
+
 fn lighting_header(caption: &'static str, layout: bool) -> Element<'static, Message> {
     row![
-        column![
-            text("Lighting").size(28).font(tokens::UI_SEMIBOLD),
-            text(caption).size(14).color(tokens::TEXT_SECONDARY),
-        ]
-        .spacing(4),
+        page_title("Lighting", caption),
         Space::new().width(Length::Fill),
         lighting_tabs(layout),
     ]
@@ -1961,26 +1946,61 @@ fn lighting_header(caption: &'static str, layout: bool) -> Element<'static, Mess
 enum Fx {
     /// Runs on the device (profile effect id).
     Device(i32),
-    /// Rendered by the background service through the Layout stream.
-    Reactive(EffectKind),
+    /// Rendered by the background service and streamed to every device.
+    Stream(EffectKind),
 }
 
-/// Reactive tiles: (effect, name, why the color section is hidden).
-const REACTIVE: [(EffectKind, &str, &str); 2] = [
-    (EffectKind::SpectrumBars, "Music", "Music colors are set on the Layout tab."),
-    (
-        EffectKind::ScreenAmbient,
-        "Screen ambient",
-        "Colors come from whatever is on your screen.",
-    ),
-];
+impl Fx {
+    /// Static and Off reach every device; the keyboard's own animations and
+    /// its per-key Custom mode exist on the keyboard only.
+    fn keyboard_only(self) -> bool {
+        matches!(self, Fx::Device(id) if id != MODE_STATIC && id != EFFECT_ID_OFF)
+    }
+}
+
+/// Follows sound or the screen: the gallery's Reactive group.
+fn is_reactive(kind: EffectKind) -> bool {
+    kind.uses_audio() || kind.uses_screen()
+}
+
+fn stream_name(kind: EffectKind) -> &'static str {
+    match kind {
+        EffectKind::SpectrumBars => "Music",
+        EffectKind::ScreenAmbient => "Screen ambient",
+        other => other.label(),
+    }
+}
+
+/// A still of every streamed effect in its default colors, for the gallery.
+fn stream_thumbs() -> Vec<(EffectKind, iced::widget::image::Handle)> {
+    use cntrl_core::canvas::Frame;
+    const W: usize = 80;
+    const H: usize = 32;
+    // Something to show for the effects that follow sound or the screen.
+    let mut input = cntrl_core::canvas_effects::EffectInput::default();
+    input.audio.bands = std::array::from_fn(|i| 0.3 + 0.7 * ((i * 7 % 5) as f32 / 4.0));
+    input.audio.level = 0.7;
+    let mut screen = Frame::new(3, 1);
+    screen.px = vec![[0x3b, 0x6b, 0xff], [0xff, 0x8a, 0x3b], [0x2b, 0xd8, 0xa0]];
+    input.screen = Some(std::sync::Arc::new(screen));
+    EffectKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let mut settings = core_canvas::EffectSettings::default();
+            settings.set_effect(kind);
+            let mut frame = Frame::new(W, H);
+            settings.render_into(&mut frame, 1.3, &input);
+            let still = iced::widget::image::Handle::from_rgba(W as u32, H as u32, frame.to_rgba());
+            (kind, still)
+        })
+        .collect()
+}
 
 impl App {
     /// The gallery tile that is live right now.
     fn current_fx(&self) -> Fx {
-        let streamed = self.canvas_layout.settings.effect;
-        if self.streaming() && REACTIVE.iter().any(|r| r.0 == streamed) {
-            Fx::Reactive(streamed)
+        if self.streaming() {
+            Fx::Stream(self.canvas_layout.settings.effect)
         } else {
             Fx::Device(self.effect_id)
         }
@@ -2008,9 +2028,9 @@ fn dimmed(color: Color, brightness: f32) -> Color {
     lerp_color(tokens::THUMB_DARK, color, 0.35 + 0.65 * (brightness / 100.0).clamp(0.0, 1.0))
 }
 
-/// Tile / preview picture for an effect. `nth` varies the on-device
-/// animations, which have no artwork of their own.
-fn fx_thumb(fx: Fx, nth: usize, color: Color, brightness: f32) -> iced::Background {
+/// Tile / preview picture for an on-device effect. `nth` varies the
+/// keyboard's animations, which have no artwork of their own.
+fn device_thumb(id: i32, nth: usize, color: Color, brightness: f32) -> iced::Background {
     use iced::gradient::Linear;
     let c = dimmed(color, brightness);
     let dark = tokens::THUMB_DARK;
@@ -2021,10 +2041,10 @@ fn fx_thumb(fx: Fx, nth: usize, color: Color, brightness: f32) -> iced::Backgrou
         }
         iced::Background::Gradient(g.into())
     };
-    match fx {
-        Fx::Device(EFFECT_ID_OFF) => tokens::THUMB_OFF.into(),
-        Fx::Device(MODE_STATIC) => c.into(),
-        Fx::Device(MODE_CUSTOM) => linear(
+    match id {
+        EFFECT_ID_OFF => tokens::THUMB_OFF.into(),
+        MODE_STATIC => c.into(),
+        MODE_CUSTOM => linear(
             90.0,
             &[
                 (0.0, dimmed(Color::from_rgb8(0xff, 0x3b, 0x3b), brightness)),
@@ -2033,55 +2053,87 @@ fn fx_thumb(fx: Fx, nth: usize, color: Color, brightness: f32) -> iced::Backgrou
                 (1.0, dimmed(Color::from_rgb8(0x7a, 0x3b, 0xff), brightness)),
             ],
         ),
-        Fx::Device(_) => {
+        _ => {
             let at = 0.25 + 0.5 * ((nth % 4) as f32 / 3.0);
-            linear(
-                20.0 + 40.0 * (nth % 9) as f32,
-                &[(0.0, dark), (at, c), (1.0, dark)],
-            )
+            linear(20.0 + 40.0 * (nth % 9) as f32, &[(0.0, dark), (at, c), (1.0, dark)])
         }
-        Fx::Reactive(EffectKind::ScreenAmbient) => linear(
-            90.0,
-            &[
-                (0.0, dimmed(Color::from_rgb8(0x3b, 0x6b, 0xff), brightness)),
-                (0.5, dimmed(Color::from_rgb8(0xff, 0x8a, 0x3b), brightness)),
-                (1.0, dimmed(Color::from_rgb8(0x2b, 0xd8, 0xa0), brightness)),
-            ],
-        ),
-        Fx::Reactive(_) => linear(0.0, &[(0.0, c), (0.6, c), (0.62, dark), (1.0, dark)]),
     }
 }
 
-fn fx_tile<'a>(
+/// The picture of `fx`, `height` tall, with the given corner rounding.
+fn fx_picture<'a>(
+    app: &'a App,
     fx: Fx,
+    nth: usize,
+    height: f32,
+    radius: iced::border::Radius,
+    faded: bool,
+) -> Element<'a, Message> {
+    let lit = Color::from_rgb8(app.current_color.0, app.current_color.1, app.current_color.2);
+    match fx {
+        Fx::Device(id) => {
+            let brightness = if faded { 0.0 } else { f32::from(app.brightness) };
+            container(Space::new().width(Length::Fill).height(height))
+                .style(boxed(
+                    device_thumb(id, nth, lit, brightness),
+                    Color::TRANSPARENT,
+                    0.0,
+                    radius,
+                ))
+                .into()
+        }
+        Fx::Stream(kind) => match app.fx_thumbs.iter().find(|(k, _)| *k == kind) {
+            Some((_, still)) => iced::widget::image(still.clone())
+                .width(Length::Fill)
+                .height(height)
+                .content_fit(iced::ContentFit::Cover)
+                .border_radius(radius)
+                .into(),
+            None => Space::new().width(Length::Fill).height(height).into(),
+        },
+    }
+}
+
+/// Gallery tile. `enabled: false` dims it and makes it unclickable.
+fn fx_tile<'a>(
+    app: &'a App,
+    fx: Fx,
+    nth: usize,
     name: &'a str,
     note: &'a str,
-    on: bool,
-    accent: Color,
-    thumb: iced::Background,
+    enabled: bool,
 ) -> Element<'a, Message> {
-    let picture = container(Space::new().width(Length::Fill).height(64)).style(boxed(
-        thumb,
-        Color::TRANSPARENT,
-        0.0,
+    let on = fx == app.current_fx();
+    let accent = app.accent();
+    let picture = fx_picture(
+        app,
+        fx,
+        nth,
+        64.0,
         iced::border::top(tokens::RADIUS_TILE - 2.0),
-    ));
+        !enabled,
+    );
+    let (title, sub) = if enabled {
+        (tokens::TEXT, tokens::TEXT_MUTED)
+    } else {
+        (tokens::TEXT_DISABLED, tokens::TEXT_DISABLED)
+    };
     button(column![
         picture,
         container(
             column![
-                text(name).size(14).font(tokens::UI_SEMIBOLD).color(tokens::TEXT),
-                // Always a line, so tiles with and without a note line up.
-                text(if note.is_empty() { " " } else { note }).size(12).color(tokens::TEXT_MUTED),
+                text(name).size(14).font(tokens::UI_SEMIBOLD).color(title),
+                // Room for two lines whatever the note, so every tile is the same height.
+                container(text(note).size(12).color(sub)).height(34),
             ]
             .spacing(2),
         )
         .padding(iced::Padding { top: 10.0, right: 12.0, bottom: 12.0, left: 12.0 }),
     ])
-    .on_press(match fx {
+    .on_press_maybe(enabled.then_some(match fx {
         Fx::Device(id) => Message::Effect(id),
-        Fx::Reactive(kind) => Message::LightingReactive(kind),
-    })
+        Fx::Stream(kind) => Message::LightingStream(kind),
+    }))
     // The 2px selection border is drawn inside the tile.
     .padding(2)
     .width(160)
@@ -2098,17 +2150,14 @@ fn fx_tile<'a>(
     .into()
 }
 
+const NOTE_KEYBOARD: &str = "Keyboard only";
+const NOTE_STREAM: &str = "All devices · runs in background";
+
 fn lighting_view(app: &App) -> Element<'_, Message> {
     let colors = &app.colors;
     let accent = app.accent();
     let current = app.current_fx();
-    let reactive = matches!(current, Fx::Reactive(_));
-    let lit = Color::from_rgb8(app.current_color.0, app.current_color.1, app.current_color.2);
-    let brightness = if reactive {
-        app.canvas_layout.settings.brightness
-    } else {
-        f32::from(app.brightness)
-    };
+    let s = &app.canvas_layout.settings;
 
     // ── Apply to ──
     let mut targets = row![
@@ -2150,28 +2199,30 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
         ]
         .spacing(12)
     }
-    let tile = |fx: Fx, nth: usize, name: &'static str, note: &'static str| {
-        fx_tile(fx, name, note, fx == current, accent, fx_thumb(fx, nth, lit, brightness))
-    };
+    // Keyboard-only effects are out of reach while the keyboard is deselected.
+    let kb = app.targets.keyboard;
     let basic = vec![
-        tile(Fx::Device(MODE_STATIC), 0, "Static", ""),
-        tile(Fx::Device(MODE_CUSTOM), 0, "Custom", "Per-key colors"),
-        tile(Fx::Device(EFFECT_ID_OFF), 0, "Off", ""),
+        fx_tile(app, Fx::Device(MODE_STATIC), 0, "Static", "", true),
+        fx_tile(app, Fx::Device(MODE_CUSTOM), 0, "Custom", NOTE_KEYBOARD, kb),
+        fx_tile(app, Fx::Device(EFFECT_ID_OFF), 0, "Off", "", true),
     ];
-    let animated = PRESET_MODES
-        .iter()
-        .enumerate()
-        .map(|(nth, m)| tile(Fx::Device(i32::from(m.effect_id)), nth, m.label, "Keyboard only"))
-        .collect();
-    let reactive_tiles = REACTIVE
-        .iter()
-        .map(|(kind, name, _)| tile(Fx::Reactive(*kind), 0, name, "Runs in background"))
+    // Solid is left out: it is Static with a background service.
+    let streamed = |reactive: bool| {
+        EffectKind::ALL
+            .into_iter()
+            .filter(move |k| *k != EffectKind::Solid && is_reactive(*k) == reactive)
+            .map(|k| fx_tile(app, Fx::Stream(k), 0, stream_name(k), NOTE_STREAM, true))
+    };
+    let animated = streamed(false)
+        .chain(PRESET_MODES.iter().enumerate().map(|(nth, m)| {
+            fx_tile(app, Fx::Device(i32::from(m.effect_id)), nth, m.label, NOTE_KEYBOARD, kb)
+        }))
         .collect();
     let gallery = scrollable(
         column![
             group("Basic", "", basic),
-            group("Animated", "Runs on the devices themselves", animated),
-            group("Reactive", "Follows your music or screen", reactive_tiles),
+            group("Animated", "", animated),
+            group("Reactive", "Follows your music or screen", streamed(true).collect()),
         ]
         .spacing(24)
         .padding(iced::Padding { right: 14.0, ..iced::Padding::ZERO }),
@@ -2182,93 +2233,149 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
     // ── Settings for the chosen effect ──
     let name = match current {
         Fx::Device(id) => effect_name(id),
-        Fx::Reactive(kind) => REACTIVE
-            .iter()
-            .find(|r| r.0 == kind)
-            .map_or_else(String::new, |r| r.1.to_string()),
+        Fx::Stream(kind) => stream_name(kind).to_string(),
     };
-    let preview = container(
-        container(text(name).size(13).font(tokens::UI_SEMIBOLD))
-            .padding([6, 12])
-            .style(boxed(
-                Color::from_rgba8(10, 12, 15, 0.72),
-                Color::TRANSPARENT,
-                0.0,
-                tokens::RADIUS_PILL,
-            )),
-    )
-    .width(Length::Fill)
-    .height(132)
-    .padding(12)
-    .align_x(Alignment::End)
-    .align_y(Alignment::End)
-    .style(boxed(
-        fx_thumb(current, 0, lit, brightness),
-        Color::TRANSPARENT,
-        0.0,
-        tokens::RADIUS_TILE,
-    ));
+    let preview = stack![
+        fx_picture(app, current, 0, 132.0, tokens::RADIUS_TILE.into(), false),
+        container(
+            container(text(name).size(13).font(tokens::UI_SEMIBOLD))
+                .padding([6, 12])
+                .style(boxed(
+                    Color::from_rgba8(10, 12, 15, 0.72),
+                    Color::TRANSPARENT,
+                    0.0,
+                    tokens::RADIUS_PILL,
+                )),
+        )
+        .width(Length::Fill)
+        .height(132)
+        .padding(12)
+        .align_x(Alignment::End)
+        .align_y(Alignment::End),
+    ];
 
-    let no_color = match current {
-        Fx::Device(EFFECT_ID_OFF) => Some("Lights are off on the selected devices."),
-        Fx::Reactive(kind) => REACTIVE.iter().find(|r| r.0 == kind).map(|r| r.2),
-        Fx::Device(_) => None,
-    };
-    let color_section: Element<'_, Message> = match no_color {
-        Some(why) => container(text(why).size(14).color(tokens::TEXT_NAV))
+    let note = |why: &'static str| -> Element<'_, Message> {
+        container(text(why).size(14).color(tokens::TEXT_NAV))
             .padding(14)
             .width(Length::Fill)
             .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_CONTROL))
-            .into(),
-        None => column![
+            .into()
+    };
+    let color_label =
+        || text("COLOR").size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY);
+    let color_section: Element<'_, Message> = match current {
+        Fx::Device(EFFECT_ID_OFF) => note("Lights are off on the selected devices."),
+        Fx::Device(_) => column![
             row![
-                text("COLOR").size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY),
+                color_label(),
                 Space::new().width(Length::Fill),
-                shape(lit, 20.0, 6.0),
+                shape(
+                    Color::from_rgb8(app.current_color.0, app.current_color.1, app.current_color.2),
+                    20.0,
+                    6.0
+                ),
                 hex_field(&app.hex_input, accent),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
-            swatches(app.current_color),
+            swatches(Some(app.current_color), Message::Swatch),
             column![
                 text("Hue").size(13).color(tokens::TEXT_NAV),
-                hue_slider(app.hsl.0),
+                hue_slider(app.hsl.0, Message::Hue, Message::LightingCommit),
             ]
             .spacing(6),
         ]
         .spacing(12)
         .into(),
+        Fx::Stream(kind) if kind.uses_screen() => {
+            note("Colors come from whatever is on your screen.")
+        }
+        Fx::Stream(kind) if kind.controls().colors == 0 => note("This effect uses its own colors."),
+        // The effect's own colors: pick one, then change it below.
+        Fx::Stream(kind) => {
+            let mut chips = row![color_label(), Space::new().width(Length::Fill)]
+                .spacing(6)
+                .align_y(Alignment::Center);
+            for (i, c) in s.palette.iter().take(kind.controls().colors).enumerate() {
+                let ring = if i == app.canvas_color_idx { tokens::TEXT } else { Color::TRANSPARENT };
+                chips = chips.push(
+                    button(shape(Color::from_rgb8(c[0], c[1], c[2]), 24.0, 6.0))
+                        .on_press(Message::CanvasColorSelect(i))
+                        .padding(3)
+                        .style(move |_, _| button::Style {
+                            border: iced::Border { radius: 9.0.into(), width: 2.0, color: ring },
+                            ..button::Style::default()
+                        }),
+                );
+            }
+            let selected = s.palette.get(app.canvas_color_idx).map(|c| (c[0], c[1], c[2]));
+            column![
+                chips,
+                swatches(selected, |rgb| Message::CanvasColorSet(rgb, true)),
+                column![
+                    text("Hue").size(13).color(tokens::TEXT_NAV),
+                    hue_slider(
+                        app.canvas_hsl.0,
+                        |h| Message::CanvasColorSet(hsl_to_rgb(h, 1.0, 0.5), false),
+                        Message::CanvasDragEnd,
+                    ),
+                ]
+                .spacing(6),
+                checkbox(s.accent_from_theme)
+                    .label("First color follows the desktop theme")
+                    .size(16)
+                    .text_size(13)
+                    .on_toggle(Message::CanvasThemeAccent),
+            ]
+            .spacing(12)
+            .into()
+        }
     };
 
+    // Sliders move the UI as they are dragged; the hardware write (and the
+    // save) happens once, on release.
     let mut sliders = column![].spacing(16);
-    sliders = sliders.push(if reactive {
-        value_slider(
-            "Brightness",
-            format!("{brightness:.0}%"),
-            slider(0.0..=100.0, brightness, Message::CanvasBrightness)
-                .on_release(Message::CanvasDragEnd)
-                .style(accent_slider(colors)),
-        )
-    } else {
-        value_slider(
-            "Brightness",
-            format!("{}%", app.brightness),
-            slider(0.0..=100.0, brightness, Message::Brightness)
-                .on_release(Message::LightingCommit)
-                .style(accent_slider(colors)),
-        )
-    });
-    // Speed only means something to the on-device animations.
-    if matches!(current, Fx::Device(id) if lighting_modes::is_preset_effect_id(id)) {
-        let speed = app.speed.clamp(1, 5);
-        let names = ["Slowest", "Slow", "Medium", "Fast", "Fastest"];
-        sliders = sliders.push(value_slider(
-            "Speed",
-            names[usize::from(speed) - 1].to_string(),
-            slider(1.0..=5.0, f32::from(speed), Message::Speed)
-                .on_release(Message::LightingCommit)
-                .style(accent_slider(colors)),
-        ));
+    match current {
+        Fx::Stream(kind) => {
+            sliders = sliders.push(value_slider(
+                "Brightness",
+                format!("{:.0}%", s.brightness),
+                slider(0.0..=100.0, s.brightness, Message::CanvasBrightness)
+                    .on_release(Message::CanvasDragEnd)
+                    .style(accent_slider(colors)),
+            ));
+            if kind.controls().speed {
+                sliders = sliders.push(value_slider(
+                    "Speed",
+                    format!("{:.1}×", s.speed),
+                    slider(0.1..=3.0, s.speed, Message::CanvasSpeed)
+                        .step(0.1)
+                        .on_release(Message::CanvasDragEnd)
+                        .style(accent_slider(colors)),
+                ));
+            }
+        }
+        Fx::Device(id) => {
+            sliders = sliders.push(value_slider(
+                "Brightness",
+                format!("{}%", app.brightness),
+                slider(0.0..=100.0, f32::from(app.brightness), Message::Brightness)
+                    .on_release(Message::LightingCommit)
+                    .style(accent_slider(colors)),
+            ));
+            // Speed only means something to the keyboard's animations.
+            if lighting_modes::is_preset_effect_id(id) {
+                let speed = app.speed.clamp(1, 5);
+                let names = ["Slowest", "Slow", "Medium", "Fast", "Fastest"];
+                sliders = sliders.push(value_slider(
+                    "Speed",
+                    names[usize::from(speed) - 1].to_string(),
+                    slider(1.0..=5.0, f32::from(speed), Message::Speed)
+                        .on_release(Message::LightingCommit)
+                        .style(accent_slider(colors)),
+                ));
+            }
+        }
     }
 
     let (dot, status) = lighting_status(app, current);
@@ -2280,11 +2387,10 @@ fn lighting_view(app: &App) -> Element<'_, Message> {
             0.0
         )),
         row![
-            shape(dot, 8.0, tokens::RADIUS_PILL),
+            container(shape(dot, 8.0, tokens::RADIUS_PILL)).padding([6, 0]),
             text(status).size(13).color(tokens::TEXT_SECONDARY),
         ]
-        .spacing(10)
-        .align_y(Alignment::Center),
+        .spacing(10),
     ]
     .spacing(16);
 
@@ -2310,24 +2416,31 @@ fn lighting_status(app: &App, current: Fx) -> (Color, String) {
     if !app.status.is_empty() {
         return (tokens::WARNING, app.status.clone());
     }
-    if let Fx::Reactive(_) = current {
-        return (tokens::SUCCESS, "Live · runs in the background".into());
+    if let Fx::Stream(_) = current {
+        return (tokens::SUCCESS, "Live on all devices · runs in the background".into());
     }
-    let keyboard_only = lighting_modes::is_preset_effect_id(app.effect_id);
-    let count = app
-        .target_kinds()
-        .into_iter()
-        .filter(|k| app.targets.get(*k) && (!keyboard_only || *k == TargetKind::Keyboard))
-        .count();
-    match count {
+    let selected: Vec<TargetKind> =
+        app.target_kinds().into_iter().filter(|k| app.targets.get(*k)).collect();
+    let saved = format!("saved to {}", profile_name(app));
+    if current.keyboard_only() {
+        return match (app.targets.keyboard, selected.len()) {
+            (false, _) => (
+                tokens::TEXT_DISABLED,
+                "This effect is keyboard only, and Keyboard is not selected".into(),
+            ),
+            (true, 1) => (tokens::SUCCESS, format!("Live on the keyboard · {saved}")),
+            // Selected, but this effect cannot run there: they are left alone.
+            (true, _) => (
+                tokens::SUCCESS,
+                format!("Live on the keyboard · other devices keep their current effect · {saved}"),
+            ),
+        };
+    }
+    match selected.len() {
         0 => (tokens::TEXT_DISABLED, "No devices selected".into()),
         n => (
             tokens::SUCCESS,
-            format!(
-                "Live on {n} device{} · saved to {}",
-                if n == 1 { "" } else { "s" },
-                profile_name(app)
-            ),
+            format!("Live on {n} device{} · {saved}", if n == 1 { "" } else { "s" }),
         ),
     }
 }
@@ -2336,7 +2449,7 @@ fn lighting_status(app: &App, current: Fx) -> (Color, String) {
 fn target_chip<'a>(label: &'a str, on: bool, accent: Color, msg: Message) -> Element<'a, Message> {
     let mut content = row![].spacing(6).align_y(Alignment::Center);
     if on {
-        content = content.push(icon(ICON_CHECK, 16, tokens::TEXT));
+        content = content.push(lucide(ICON_CHECK, 16.0, tokens::TEXT));
     }
     content = content.push(text(label).size(14).font(tokens::UI_MEDIUM));
     button(vcenter(content))
@@ -2373,7 +2486,11 @@ fn value_slider<'a>(
 }
 
 /// Hue picker: a rainbow bar with the slider's handle riding on it.
-fn hue_slider(hue: f32) -> Element<'static, Message> {
+fn hue_slider<'a>(
+    hue: f32,
+    on_change: impl Fn(f32) -> Message + 'a,
+    on_release: Message,
+) -> Element<'a, Message> {
     let mut rainbow = iced::gradient::Linear::new(iced::Radians(std::f32::consts::FRAC_PI_2));
     for (i, rgb) in [0xff0000u32, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff, 0xff0000]
         .into_iter()
@@ -2391,8 +2508,8 @@ fn hue_slider(hue: f32) -> Element<'static, Message> {
         )),
     )
     .padding([3, 0]);
-    let handle = slider(0.0..=360.0, hue, Message::Hue)
-        .on_release(Message::LightingCommit)
+    let handle = slider(0.0..=360.0, hue, on_change)
+        .on_release(on_release)
         .height(20)
         .style(|theme, status| {
             let mut s = slider::default(theme, status);
@@ -2413,20 +2530,23 @@ const SWATCH_COLORS: [u32; 16] = [
 ];
 
 /// Two rows of eight; the current color wears a light ring.
-fn swatches(current: (u8, u8, u8)) -> Element<'static, Message> {
+fn swatches<'a>(
+    current: Option<(u8, u8, u8)>,
+    on_pick: impl Fn((u8, u8, u8)) -> Message,
+) -> Element<'a, Message> {
     let mut grid = column![].spacing(2);
     for chunk in SWATCH_COLORS.chunks(8) {
         let mut line = row![].spacing(2);
         for &hex in chunk {
             let rgb = ((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
             let fill = Color::from_rgb8(rgb.0, rgb.1, rgb.2);
-            let ring = if rgb == current { tokens::TEXT } else { Color::TRANSPARENT };
+            let ring = if Some(rgb) == current { tokens::TEXT } else { Color::TRANSPARENT };
             line = line.push(
                 button(
                     container(Space::new().width(Length::Fill).height(26))
                         .style(boxed(fill, Color::TRANSPARENT, 0.0, 6.0)),
                 )
-                .on_press(Message::Swatch(rgb))
+                .on_press(on_pick(rgb))
                 .padding(3)
                 .width(Length::FillPortion(1))
                 .style(move |_, _| button::Style {
@@ -2576,49 +2696,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             Some(Message::CanvasDragEnd),
         ));
 
-    // ── effect colors: one swatch per color the effect uses; the selected
-    // one is edited with the HSL sliders ──
-    let palette_row: Element<'_, Message> = if controls_for.colors == 0 {
-        Space::new().height(0).into()
-    } else {
-        let accent = hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92));
-        let mut r = row![text("Colors").size(12).color(muted(colors))]
-            .spacing(8)
-            .align_y(Alignment::Center);
-        for (i, c) in s.palette.iter().take(controls_for.colors).enumerate() {
-            r = r.push(
-                button(Space::new().width(26).height(26))
-                    .on_press(Message::CanvasColorSelect(i))
-                    .style(swatch_button_style(
-                        (c[0], c[1], c[2]),
-                        i == app.canvas_color_idx,
-                        accent,
-                    )),
-            );
-        }
-        let (h, sat, l) = app.canvas_hsl;
-        let hsl_slider = |label, value_label, range, value, part| {
-            labeled_slider_released(
-                label,
-                value_label,
-                range,
-                value,
-                colors,
-                move |v| Message::CanvasColorHsl(part, v),
-                Some(Message::CanvasDragEnd),
-            )
-        };
-        r.push(hsl_slider("Hue", format!("{h:.0}°"), 0.0..=360.0, h, 0))
-            .push(hsl_slider("Saturation", format!("{:.0}%", sat * 100.0), 0.0..=100.0, sat * 100.0, 1))
-            .push(hsl_slider("Lightness", format!("{:.0}%", l * 100.0), 0.0..=100.0, l * 100.0, 2))
-            .push(
-                checkbox(s.accent_from_theme)
-                    .label("First color follows the theme accent")
-                    .on_toggle(Message::CanvasThemeAccent),
-            )
-            .spacing(14)
-            .into()
-    };
+    // (Effect colors are edited on the Effects tab's side panel.)
 
     // ── layer: a second effect over the main one, plus audio brightness ──
     let mut layer_row = row![
@@ -2868,7 +2946,6 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             .align_y(Alignment::Center),
             effect_row,
             sliders,
-            palette_row,
             layer_row,
             hairline_divider(colors),
             row![card_label("DEVICES", colors), chips.wrap()]
@@ -3029,142 +3106,431 @@ fn devices_view(app: &App) -> Element<'_, Message> {
     scrollable(col).height(Length::Fill).into()
 }
 
-fn fans_view(app: &App) -> Element<'_, Message> {
-    let colors = &app.colors;
+/// What a person would call this fan; the board's own name goes underneath.
+fn fan_name(ch: &cntrl_core::fan_control::FanChannel) -> String {
+    let label = ch.label.to_ascii_uppercase();
+    if ch.chip == "amdgpu" {
+        "Graphics card".into()
+    } else if label.contains("PUMP") {
+        "Pump".into()
+    } else if label == "CPU_FAN" {
+        "CPU fan".into()
+    } else if label == "CPU_OPT" {
+        "CPU fan 2".into()
+    } else if let Some(n) = label.strip_prefix("SYS_FAN") {
+        format!("Case fan {n}")
+    } else if ch.label.is_empty() {
+        ch.id.clone()
+    } else {
+        ch.label.clone()
+    }
+}
 
+/// The name printed on the board (`CPU_FAN`), or the kernel id without one.
+fn fan_raw(ch: &cntrl_core::fan_control::FanChannel) -> &str {
+    if ch.label.is_empty() { &ch.id } else { &ch.label }
+}
+
+/// What a person would call this temperature.
+fn sensor_name(s: &cntrl_core::fan_control::TempSensor) -> String {
+    match (s.chip.as_str(), s.label.as_str()) {
+        ("k10temp" | "zenpower", "Tctl") | ("coretemp", "Package id 0") => "CPU".into(),
+        ("amdgpu", "edge") if s.id.starts_with("amdgpu/") => "Graphics card".into(),
+        // Everything else keeps its id: several chips repeat the same labels.
+        _ => format!("{} · {}", s.label, s.id),
+    }
+}
+
+/// A graphics card that keeps its own fan curve (it is not in manual mode).
+fn fan_on_firmware(app: &App, ch: &cntrl_core::fan_control::FanChannel) -> bool {
+    ch.chip == "amdgpu" && !app.fan_readings.manual.contains(&ch.id)
+}
+
+/// The fan the right-hand card shows: the picked one, else the first
+/// motherboard fan with a curve.
+fn selected_fan(app: &App) -> Option<&cntrl_core::fan_control::FanChannel> {
+    let chans = &app.fan_discovery.channels;
+    app.fan_selected
+        .as_deref()
+        .and_then(|id| app.fan_discovery.channel(id))
+        .or_else(|| {
+            chans
+                .iter()
+                .find(|c| app.assignment_for(&c.id).is_some() && c.chip != "amdgpu")
+        })
+        .or(chans.first())
+}
+
+/// Dropdown look from the handoff (inset fill, control border).
+fn select_style(_: &Theme, status: pick_list::Status) -> pick_list::Style {
+    pick_list::Style {
+        text_color: tokens::TEXT,
+        placeholder_color: tokens::TEXT_MUTED,
+        handle_color: tokens::TEXT_MUTED,
+        background: tokens::INSET.into(),
+        border: iced::Border {
+            radius: tokens::RADIUS_CONTROL.into(),
+            width: 1.0,
+            color: if matches!(status, pick_list::Status::Active) {
+                tokens::BORDER_CONTROL
+            } else {
+                tokens::TEXT_MUTED
+            },
+        },
+    }
+}
+
+fn fans_view(app: &App) -> Element<'_, Message> {
+    use cntrl_core::fan_curves::FanMode;
+    let accent = app.accent();
+    let cfg = &app.fan_curve_cfg;
+
+    // ── header: title + the one switch that hands fans to CNTRL ──
+    let on = cfg.enabled;
+    let track = container(shape(
+        if on { tokens::ON_ACCENT } else { Color::from_rgb8(0xC9, 0xCF, 0xD6) },
+        22.0,
+        tokens::RADIUS_PILL,
+    ))
+    .width(46)
+    .height(28)
+    .padding(3)
+    .align_x(if on { Alignment::End } else { Alignment::Start })
+    .style(boxed(
+        if on { accent } else { Color::from_rgb8(0x3A, 0x41, 0x4A) },
+        Color::TRANSPARENT,
+        0.0,
+        tokens::RADIUS_PILL,
+    ));
+    let switch = button(vcenter(
+        row![text("Let CNTRL control fans").size(14), track]
+            .spacing(12)
+            .align_y(Alignment::Center),
+    ))
+    .on_press(Message::FanToggleEnabled(!on))
+    .height(tokens::TARGET)
+    .padding(iced::Padding { left: 16.0, right: 6.0, ..iced::Padding::ZERO })
+    .style(flat_button(
+        tokens::SURFACE,
+        tokens::HOVER,
+        tokens::TEXT,
+        tokens::BORDER_CONTROL,
+        tokens::RADIUS_PILL,
+    ));
     let header = row![
-        section_header(
+        page_title(
             "Fans",
-            "Temp→duty curves · the engine restores fans on exit",
-            colors
+            "Pick how your PC should sound. Fine-tune single fans only if you want to.",
         ),
         Space::new().width(Length::Fill),
-        checkbox(app.fan_curve_cfg.enabled)
-            .label("Enable engine")
-            .on_toggle(Message::FanToggleEnabled),
+        switch,
     ]
-    .align_y(Alignment::Center);
+    .spacing(16)
+    .align_y(Alignment::End);
 
-    // Left: channel list.
-    let mut list = column![card_label("FAN CHANNELS", colors)].spacing(8);
-    if app.fan_discovery.channels.is_empty() {
-        list = list.push(text("No fan channels detected.").size(12).color(muted(colors)));
+    // ── mode cards ──
+    let mut modes = row![].spacing(12);
+    for mode in FanMode::ALL {
+        let picked = cfg.mode == mode;
+        let desc = match mode {
+            FanMode::Silent => "Quietest. Fans ramp up late.",
+            FanMode::Balanced => "Quiet at idle, cool under load.",
+            FanMode::Performance => "Coolest. Fans spin up early.",
+            FanMode::Custom => "Your own curve for each fan.",
+        };
+        let ring = if picked { accent } else { Color::from_rgb8(0x4A, 0x52, 0x5C) };
+        let radio = container(shape(
+            if picked { accent } else { Color::TRANSPARENT },
+            8.0,
+            tokens::RADIUS_PILL,
+        ))
+        .center(18)
+        .style(boxed(Color::TRANSPARENT, ring, 2.0, tokens::RADIUS_PILL));
+        modes = modes.push(
+            button(
+                column![
+                    row![
+                        text(mode.label()).size(16).font(tokens::UI_SEMIBOLD).width(Length::Fill),
+                        radio,
+                    ]
+                    .align_y(Alignment::Center),
+                    text(desc).size(13).color(tokens::TEXT_SECONDARY),
+                ]
+                .spacing(6),
+            )
+            .on_press(Message::FanSetMode(mode))
+            .width(Length::FillPortion(1))
+            .height(92)
+            .padding([16, 18])
+            .style(move |_, _| button::Style {
+                background: Some(
+                    if picked { Color::from_rgb8(0x1F, 0x25, 0x2B) } else { tokens::SURFACE }.into(),
+                ),
+                text_color: tokens::TEXT,
+                border: iced::Border {
+                    radius: 14.0.into(),
+                    width: 2.0,
+                    color: if picked { accent } else { tokens::BORDER },
+                },
+                ..button::Style::default()
+            }),
+        );
     }
-    for ch in &app.fan_discovery.channels {
-        let selected = app.fan_selected.as_deref() == Some(ch.id.as_str());
-        let rpm = app
-            .fan_readings
-            .rpm
-            .get(&ch.id)
-            .map(|r| format!("{r} RPM"))
-            .unwrap_or_else(|| "no tach".to_string());
+
+    // ── your fans: motherboard headers first, the graphics card last ──
+    let selected = selected_fan(app).map(|c| c.id.as_str());
+    let mut list = column![].spacing(6);
+    let chans = &app.fan_discovery.channels;
+    for ch in chans.iter().filter(|c| c.chip != "amdgpu").chain(chans.iter().filter(|c| c.chip == "amdgpu")) {
+        let picked = selected == Some(ch.id.as_str());
+        let rpm = app.fan_readings.rpm.get(&ch.id).copied();
         let duty = app
             .fan_readings
             .pwm_raw
             .get(&ch.id)
-            .map(|raw| format!("{}%", cntrl_core::fan_control::raw_to_pct(*raw)))
-            .unwrap_or_else(|| "—".to_string());
-        let assigned = app.assignment_for(&ch.id).is_some();
-        // Board name first when a sensors config knows it ("CPU_FAN").
-        let name = if ch.label.is_empty() {
-            ch.id.clone()
-        } else {
-            ch.label.clone()
+            .map_or(0, |raw| u16::from(cntrl_core::fan_control::raw_to_pct(*raw)));
+        let speed = match (fan_on_firmware(app, ch), rpm) {
+            (true, Some(0) | None) => "Off · auto".to_string(),
+            (true, Some(r)) => format!("{r} rpm · auto"),
+            (false, Some(r)) => format!("{r} rpm"),
+            (false, None) => "no reading".to_string(),
         };
-        // A curve is set and the engine is on, yet the fan is not in manual
-        // mode: the driver refused it (amdgpu) or the engine handed it back.
-        let held = if assigned
-            && app.fan_curve_cfg.enabled
-            && !app.fan_readings.manual.contains(&ch.id)
-        {
-            " · firmware is in control, curve not applied"
-        } else {
-            ""
-        };
-        let mut title = row![text(name).size(14)].spacing(8).align_y(Alignment::Center);
-        if ch.experimental {
-            title = title.push(badge("EXPERIMENTAL", Color::from_rgb8(0xe0, 0x9c, 0x4c)));
+        let mut bar = row![].height(4);
+        if duty > 0 {
+            bar = bar.push(
+                container(Space::new().height(4))
+                    .width(Length::FillPortion(duty))
+                    .style(boxed(accent, Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL)),
+            );
         }
-        if assigned {
-            title = title.push(badge("CURVE", hexc(&colors.accent, Color::from_rgb8(0xd8, 0x8f, 0x92))));
+        if duty < 100 {
+            bar = bar.push(Space::new().width(Length::FillPortion(100 - duty)));
         }
-        let body = column![
-            row![
-                title,
-                Space::new().width(Length::Fill),
-                fan_status_pill(ch.status),
-            ]
-            .align_y(Alignment::Center),
-            text(format!("{rpm} · duty {duty}{held}")).size(11).color(muted(colors)),
-        ]
-        .spacing(4);
         list = list.push(
-            button(body)
-                .on_press(Message::FanSelectChannel(ch.id.clone()))
-                .width(Length::Fill)
-                .padding(12)
-                .style(nav_button_style(colors, selected)),
+            button(vcenter(
+                row![
+                    column![
+                        text(fan_name(ch)).size(14).font(tokens::UI_SEMIBOLD),
+                        text(fan_raw(ch).to_string())
+                            .size(12)
+                            .font(tokens::MONO)
+                            .color(tokens::TEXT_MUTED),
+                    ]
+                    .spacing(1)
+                    .width(Length::Fill),
+                    column![
+                        text(speed).size(14).font(tokens::MONO),
+                        container(bar).width(Length::Fill).style(boxed(
+                            tokens::BORDER_PROFILE,
+                            Color::TRANSPARENT,
+                            0.0,
+                            tokens::RADIUS_PILL,
+                        )),
+                    ]
+                    .spacing(6)
+                    .width(110)
+                    .align_x(Alignment::End),
+                ]
+                .spacing(16)
+                .align_y(Alignment::Center),
+            ))
+            .on_press(Message::FanSelectChannel(ch.id.clone()))
+            .width(Length::Fill)
+            .height(60)
+            .padding([0, 16])
+            .style(flat_button(
+                if picked { tokens::SELECTED } else { tokens::SURFACE },
+                tokens::SELECTED,
+                tokens::TEXT,
+                if picked { Color::from_rgb8(0x3A, 0x42, 0x4B) } else { tokens::BORDER },
+                tokens::RADIUS_TILE,
+            )),
+        );
+    }
+    if chans.is_empty() {
+        list = list.push(text("No fans detected.").size(13).color(tokens::TEXT_MUTED));
+    }
+    let mut left = column![
+        text("YOUR FANS").size(12).font(tokens::UI_SEMIBOLD).color(tokens::TEXT_SECONDARY),
+        list,
+    ]
+    .spacing(12)
+    .width(Length::FillPortion(2));
+    // One warning for the whole board instead of a badge on every row.
+    if let Some(ch) = chans.iter().find(|c| c.experimental) {
+        let chip = ch.chip.split('_').next().unwrap_or(&ch.chip);
+        left = left.push(
+            container(
+                row![
+                    lucide(ICON_WARNING, 18.0, tokens::WARNING),
+                    text(format!(
+                        "Motherboard fan control on this board ({chip}) is experimental. \
+                         If CNTRL closes, your BIOS takes over the fans again."
+                    ))
+                    .size(13)
+                    .color(Color::from_rgb8(0xF3, 0xD9, 0xA8)),
+                ]
+                .spacing(12),
+            )
+            .padding(14)
+            .width(Length::Fill)
+            .style(boxed(
+                Color::from_rgb8(0x2A, 0x24, 0x18),
+                Color::TRANSPARENT,
+                0.0,
+                tokens::RADIUS_TILE,
+            )),
         );
     }
 
-    let left = container(scrollable(list).height(Length::Fill))
-        .width(Length::FillPortion(2))
-        .height(Length::Fill);
-
-    // Right: editor for the selected channel.
-    let right = container(fan_editor_pane(app))
-        .width(Length::FillPortion(3))
-        .height(Length::Fill)
-        .padding([0, 4]);
-
-    let mut root = column![header].spacing(16);
+    let mut root = column![header].spacing(24);
     if !app.fan_status.is_empty() {
-        root = root.push(text(app.fan_status.clone()).size(12).color(muted(colors)));
+        root = root.push(text(app.fan_status.clone()).size(13).color(tokens::WARNING));
     }
-    root = root.push(row![left, right].spacing(20).height(Length::Fill));
-    root.into()
+    root.push(modes)
+        .push(
+            row![scrollable(left).height(Length::Fill), fan_card(app)]
+                .spacing(24)
+                .height(Length::Fill),
+        )
+        .into()
 }
 
-/// The right-hand editor pane: curve graph + sensor + duty envelope, or a prompt.
-fn fan_editor_pane(app: &App) -> Element<'_, Message> {
+/// The right-hand card: the selected fan's curve and its two settings.
+fn fan_card(app: &App) -> Element<'_, Message> {
     use cntrl_core::fan_control::FanChannelStatus;
+    use cntrl_core::fan_curves::{CurveKind, FanMode};
     let colors = &app.colors;
+    let cfg = &app.fan_curve_cfg;
+    fn card<'a>(content: iced::widget::Column<'a, Message>) -> Element<'a, Message> {
+        container(content.spacing(18))
+            .padding(22)
+            .width(Length::FillPortion(3))
+            .style(boxed(tokens::SURFACE, tokens::BORDER, 1.0, tokens::RADIUS_CARD))
+            .into()
+    }
+    let note = |msg: String| -> Element<'_, Message> {
+        container(text(msg).size(14).color(tokens::TEXT_NAV))
+            .padding(16)
+            .width(Length::Fill)
+            .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_TILE))
+            .into()
+    };
+    let Some(ch) = selected_fan(app) else {
+        return card(column![note("No fans detected.".into())]);
+    };
+    let firmware = fan_on_firmware(app, ch);
+    let assignment = app.assignment_for(&ch.id);
 
-    // Nothing picked yet: open on the first fan that has a curve.
-    let first = || {
-        let chans = &app.fan_discovery.channels;
-        chans
-            .iter()
-            .find(|c| app.assignment_for(&c.id).is_some() && c.chip != "amdgpu")
-            .or(chans.first())
-            .map(|c| c.id.clone())
+    let duty = app
+        .fan_readings
+        .pwm_raw
+        .get(&ch.id)
+        .map_or(0, |raw| cntrl_core::fan_control::raw_to_pct(*raw));
+    let summary = match (firmware, app.fan_readings.rpm.get(&ch.id)) {
+        (true, _) => "Controlled by the graphics card".to_string(),
+        (false, Some(rpm)) => format!("{rpm} rpm right now · {duty}% speed"),
+        (false, None) => format!("{duty}% speed"),
     };
-    let Some(sel) = app.fan_selected.clone().or_else(first) else {
-        return placeholder_card("Select a fan channel to edit its curve.", colors);
-    };
-    let Some(channel) = app.fan_discovery.channel(&sel) else {
-        return placeholder_card("That channel is no longer present.", colors);
+    let head = row![
+        column![
+            text(fan_name(ch)).size(20).font(tokens::UI_SEMIBOLD),
+            text(summary).size(14).color(tokens::TEXT_SECONDARY),
+        ]
+        .spacing(2)
+        .width(Length::Fill),
+        container(text(format!("{} curve", cfg.mode.label())).size(13).color(tokens::TEXT_NAV))
+            .padding([6, 12])
+            .style(boxed(tokens::RAISED, Color::TRANSPARENT, 0.0, tokens::RADIUS_PILL)),
+    ]
+    .spacing(12);
+
+    let take_over = |label: &'static str| -> Option<Element<'_, Message>> {
+        let sensor = default_sensor_for(app, &ch.id)?;
+        Some(
+            button(text(label).size(14))
+                .on_press(Message::FanCreateAssignment(ch.id.clone(), sensor))
+                .padding([10, 16])
+                .style(flat_button(
+                    tokens::RAISED,
+                    tokens::SEGMENT_ON,
+                    tokens::TEXT,
+                    tokens::BORDER_CONTROL,
+                    tokens::RADIUS_CONTROL,
+                ))
+                .into(),
+        )
     };
 
-    if channel.status == FanChannelStatus::Blocked {
-        return placeholder_card(
-            &format!(
-                "This channel is permission-blocked:\n{}\n\nInstall packaging/udev/99-cntrl-hwmon.rules \
-                 and run: sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hwmon",
-                channel.detail
+    if ch.status == FanChannelStatus::Blocked {
+        return card(column![
+            head,
+            note(format!(
+                "CNTRL is not allowed to control this fan: {}\n\nInstall \
+                 packaging/udev/99-cntrl-hwmon.rules, then run: sudo udevadm control \
+                 --reload-rules && sudo udevadm trigger --subsystem-match=hwmon",
+                ch.detail
+            )),
+        ]);
+    }
+    if ch.status == FanChannelStatus::ReadOnly {
+        return card(column![
+            head,
+            note("This fan can be read but not controlled: its driver has no manual mode.".into()),
+        ]);
+    }
+    if firmware {
+        let mut body = column![
+            head,
+            note(
+                "The graphics card manages its own fans. They stay off until the GPU warms \
+                 up, which is normal."
+                    .into()
             ),
-            colors,
-        );
+        ];
+        // Older cards do accept a curve; newer ones ignore it (the list says so).
+        if assignment.is_none() && cfg.mode == FanMode::Custom {
+            body = body.extend(take_over("Try a curve anyway"));
+        }
+        return card(body);
     }
-    if channel.status == FanChannelStatus::ReadOnly {
-        return placeholder_card(
-            "This channel has no enable file, so it can't be switched to manual control.",
-            colors,
+    let Some(assignment) = assignment else {
+        return card(
+            column![head, note("CNTRL is not controlling this fan. Your BIOS is.".into())]
+                .extend(take_over("Control this fan")),
         );
-    }
+    };
 
-    // Every temperature the machine has, by name, with its live reading —
-    // the list a curve's source is picked from.
+    let curve_id = App::curve_id_for(&ch.id);
+    let (stored, sensor_id, also_id): (&[cntrl_core::fan_curves::CurvePoint], String, Option<String>) =
+        cfg.curve(&curve_id)
+            .and_then(|c| match &c.kind {
+                CurveKind::Graph { points, sensor_id, also_sensor_id } => {
+                    Some((points.as_slice(), sensor_id.clone(), also_sensor_id.clone()))
+                }
+                _ => None,
+            })
+            .unwrap_or((&[], String::new(), None));
+    let custom = cfg.mode == FanMode::Custom;
+    let points = cfg.mode.preset().unwrap_or(stored);
+
+    // The curve runs on the hotter of its sensors, so that is what the marker shows.
+    let temp_of = |id: &String| app.fan_readings.temps_c.get(id).copied();
+    let current_temp = match (temp_of(&sensor_id), also_id.as_ref().and_then(temp_of)) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, _) => a,
+    };
+    let hint = if custom {
+        "Drag a point to move it · click empty space to add one · right-click a point to remove it."
+            .to_string()
+    } else {
+        format!(
+            "This is the {} curve. Choose Custom above to drag the points yourself.",
+            cfg.mode.label()
+        )
+    };
+
+    // Every temperature the machine has, by name, with its live reading.
     let sensor_choices: Vec<SensorChoice> = app
         .fan_discovery
         .sensors
@@ -3172,163 +3538,100 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
         .map(|s| SensorChoice {
             id: s.id.clone(),
             text: match app.fan_readings.temps_c.get(&s.id) {
-                Some(t) => format!("{} — {}  ·  {t:.0}°C", s.label, s.id),
-                None => format!("{} — {}", s.label, s.id),
+                Some(t) => format!("{} ({t:.0}°C)", sensor_name(s)),
+                None => sensor_name(s),
             },
         })
         .collect();
-
-    let Some(assignment) = app.assignment_for(&sel) else {
-        // No curve yet — offer to create one, defaulting the sensor sensibly.
-        let default_sensor = default_sensor_for(app, &sel);
-        let mut col = column![
-            text(format!("{sel}")).size(18),
-            text("No curve assigned yet.").size(12).color(muted(colors)),
-        ]
-        .spacing(10);
-        if let Some(sid) = default_sensor {
-            col = col.push(
-                button(text("Add curve"))
-                    .on_press(Message::FanCreateAssignment(sel.clone(), sid))
-                    .padding([9, 18])
-                    .style(segment_style(colors, true)),
-            );
-        } else {
-            col = col.push(text("No temperature sensors available.").size(12).color(muted(colors)));
-        }
-        return container(col).padding(16).width(Length::Fill).style(card(colors)).into();
-    };
-
-    // Curve editor for the assigned graph curve.
-    let curve_id = App::curve_id_for(&sel);
-    let (points, sensor_id, also_id): (&[cntrl_core::fan_curves::CurvePoint], String, Option<String>) = app
-        .fan_curve_cfg
-        .curve(&curve_id)
-        .and_then(|c| match &c.kind {
-            cntrl_core::fan_curves::CurveKind::Graph { points, sensor_id, also_sensor_id } => {
-                Some((points.as_slice(), sensor_id.clone(), also_sensor_id.clone()))
-            }
-            _ => None,
-        })
-        .unwrap_or((&[], String::new(), None));
-
-    // The curve runs on the hotter of its sensors, so that is what "now" shows.
-    let temp_of = |id: &String| app.fan_readings.temps_c.get(id).copied();
-    let current_temp = match (temp_of(&sensor_id), also_id.as_ref().and_then(temp_of)) {
-        (Some(a), Some(b)) => Some(a.max(b)),
-        (a, _) => a,
-    };
-
-    let none_choice = SensorChoice { id: String::new(), text: "none".into() };
-    let also_choices: Vec<SensorChoice> = std::iter::once(none_choice.clone())
-        .chain(sensor_choices.iter().filter(|c| c.id != sensor_id).cloned())
-        .collect();
-    let also_selected = match &also_id {
-        Some(id) => also_choices.iter().find(|c| &c.id == id).cloned(),
-        None => Some(none_choice),
-    };
-    let also_curve_id = curve_id.clone();
-    let also_row = row![
-        text("Or, if hotter").size(12).color(muted(colors)),
-        pick_list(also_choices, also_selected, move |choice| {
-            Message::FanSetAlsoSensor(
-                also_curve_id.clone(),
-                (!choice.id.is_empty()).then_some(choice.id),
-            )
-        })
-        .placeholder("sensor not found — pick one")
-        .text_size(13),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
-
-    let sensor_row = row![
-        text("Sensor").size(12).color(muted(colors)),
-        pick_list(
-            sensor_choices.clone(),
-            sensor_choices.iter().find(|c| c.id == sensor_id).cloned(),
-            move |choice| Message::FanSetSensor(curve_id.clone(), choice.id),
-        )
-        .placeholder("sensor not found — pick one")
-        .text_size(13),
-        Space::new().width(Length::Fill),
-        text(
-            current_temp
-                .map(|t| format!("now {t:.0}°C"))
-                .unwrap_or_default()
-        )
-        .size(12)
-        .color(muted(colors)),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
-
-    let editor = crate::fans_tab::curve_editor(
-        App::curve_id_for(&sel),
-        points,
-        current_temp,
-        colors,
-    );
-
-    let min = assignment.min_duty_pct as f32;
-    let max = assignment.max_duty_pct as f32;
-    let ch_min = sel.clone();
-    let ch_max = sel.clone();
-    let envelope = column![
-        labeled_slider(
-            "Min duty",
-            format!("{}%", assignment.min_duty_pct),
-            0.0..=100.0,
-            min,
-            colors,
-            move |v| Message::FanMinDuty(ch_min.clone(), v),
-        ),
-        labeled_slider(
-            "Max duty",
-            format!("{}%", assignment.max_duty_pct),
-            0.0..=100.0,
-            max,
-            colors,
-            move |v| Message::FanMaxDuty(ch_max.clone(), v),
-        ),
-    ]
-    .spacing(10);
-
-    let footer = row![
-        text("Click empty space to add a point · drag to move · right-click to delete")
-            .size(11)
-            .color(muted(colors)),
-        Space::new().width(Length::Fill),
-        button(text("Remove curve"))
-            .on_press(Message::FanRemoveAssignment(sel.clone()))
-            .padding([7, 14])
-            .style(segment_style(colors, false)),
-    ]
-    .align_y(Alignment::Center);
-
-    container(
-        column![
-            text(if channel.label.is_empty() {
-                sel.clone()
-            } else {
-                format!("{}  ·  {sel}", channel.label)
-            })
-            .size(18),
-            sensor_row,
-            also_row,
-            container(editor).padding(8).style(card(colors)),
-            envelope,
-            footer,
-        ]
-        .spacing(14),
+    fn field<'a>(
+        label: &'a str,
+        control: Element<'a, Message>,
+    ) -> iced::widget::Column<'a, Message> {
+        column![text(label).size(13).color(tokens::TEXT_NAV), control]
+            .spacing(6)
+            .width(Length::FillPortion(1))
+    }
+    let follow_id = curve_id.clone();
+    let follow = pick_list(
+        sensor_choices.clone(),
+        sensor_choices.iter().find(|c| c.id == sensor_id).cloned(),
+        move |choice| Message::FanSetSensor(follow_id.clone(), choice.id),
     )
-    .padding(16)
+    .placeholder("sensor not found, pick one")
     .width(Length::Fill)
-    .style(card(colors))
-    .into()
+    .padding([12, 12])
+    .text_size(14)
+    .style(select_style);
+
+    let min = f32::from(assignment.min_duty_pct);
+    let floor_id = ch.id.clone();
+    let floor = column![
+        row![
+            text("Never slower than").size(13).color(tokens::TEXT_NAV),
+            Space::new().width(Length::Fill),
+            text(format!("{min:.0}%")).size(13).font(tokens::MONO),
+        ],
+        container(
+            slider(0.0..=60.0, min.min(60.0), move |v| Message::FanMinDuty(floor_id.clone(), v))
+                .style(accent_slider(colors)),
+        )
+        .center_y(tokens::TARGET),
+    ]
+    .spacing(6)
+    .width(Length::FillPortion(1));
+
+    let mut body = column![
+        head,
+        crate::fans_tab::curve_editor(curve_id.clone(), points, current_temp, custom, colors),
+        text(hint).size(13).color(tokens::TEXT_SECONDARY),
+        container(Space::new().height(1).width(Length::Fill)).style(boxed(
+            tokens::SEGMENT_ON,
+            Color::TRANSPARENT,
+            0.0,
+            0.0
+        )),
+        row![field("Follow temperature of", follow.into()), floor].spacing(16),
+    ];
+    if custom {
+        // Fine-tuning that only makes sense per fan.
+        let none = SensorChoice { id: String::new(), text: "nothing else".into() };
+        let also_choices: Vec<SensorChoice> = std::iter::once(none.clone())
+            .chain(sensor_choices.iter().filter(|c| c.id != sensor_id).cloned())
+            .collect();
+        let also_selected = match &also_id {
+            Some(id) => also_choices.iter().find(|c| &c.id == id).cloned(),
+            None => Some(none),
+        };
+        let also_curve = curve_id.clone();
+        let also = pick_list(also_choices, also_selected, move |choice| {
+            Message::FanSetAlsoSensor(also_curve.clone(), (!choice.id.is_empty()).then_some(choice.id))
+        })
+        .placeholder("sensor not found, pick one")
+        .width(Length::Fill)
+        .padding([12, 12])
+        .text_size(14)
+        .style(select_style);
+        let release = column![
+            Space::new().height(19),
+            button(vcenter(text("Give this fan back to the BIOS").size(14)))
+                .on_press(Message::FanRemoveAssignment(ch.id.clone()))
+                .height(tokens::TARGET)
+                .padding([0, 16])
+                .style(flat_button(
+                    Color::TRANSPARENT,
+                    tokens::HOVER,
+                    tokens::TEXT_NAV,
+                    tokens::BORDER_CONTROL,
+                    tokens::RADIUS_CONTROL,
+                )),
+        ]
+        .width(Length::FillPortion(1))
+        .align_x(Alignment::End);
+        body = body.push(row![field("Or this one, if it is hotter", also.into()), release].spacing(16));
+    }
+    card(body)
 }
 
-/// Pick a sensible default sensor for a channel: prefer one on the same chip.
 /// One entry of the temperature-source list: shown by name, stored by id.
 #[derive(Debug, Clone, PartialEq)]
 struct SensorChoice {
@@ -3361,51 +3664,6 @@ fn default_sensor_for(app: &App, channel_id: &str) -> Option<String> {
         cpu().or_else(own_chip)
     };
     pick.or_else(|| sensors.first()).map(|s| s.id.clone())
-}
-
-fn placeholder_card<'a>(msg: &str, colors: &theme::ThemeColors) -> Element<'a, Message> {
-    container(text(msg.to_string()).size(13).color(muted(colors)))
-        .padding(16)
-        .width(Length::Fill)
-        .style(card(colors))
-        .into()
-}
-
-/// A small colored pill badge (e.g. "EXPERIMENTAL").
-fn badge(label: &str, color: Color) -> Element<'static, Message> {
-    container(text(label.to_string()).size(9).color(color))
-        .padding([2, 6])
-        .style(move |_| container::Style {
-            border: iced::Border {
-                radius: 6.0.into(),
-                width: 1.0,
-                color,
-            },
-            ..Default::default()
-        })
-        .into()
-}
-
-/// Status dot + label for a fan channel (mirrors `status_pill`).
-fn fan_status_pill(status: cntrl_core::fan_control::FanChannelStatus) -> Element<'static, Message> {
-    use cntrl_core::fan_control::FanChannelStatus;
-    let color = match status {
-        FanChannelStatus::Controllable => Color::from_rgb8(0x4c, 0xc2, 0x6a),
-        FanChannelStatus::Blocked => Color::from_rgb8(0xe0, 0x6c, 0x4c),
-        FanChannelStatus::ReadOnly => Color::from_rgb8(0xe0, 0x9c, 0x4c),
-    };
-    let dot = container(Space::new().width(8).height(8)).style(move |_| container::Style {
-        background: Some(color.into()),
-        border: iced::Border {
-            radius: 4.0.into(),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-    row![dot, text(status.label()).size(11).color(color)]
-        .spacing(6)
-        .align_y(Alignment::Center)
-        .into()
 }
 
 fn status_text<'a>(status: &'a str, colors: &theme::ThemeColors) -> Element<'a, Message> {

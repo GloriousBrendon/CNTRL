@@ -8,5 +8,5 @@ repository = "https://github.com/GloriousBrendon/CNTRL"
 
 [dependencies]
 cntrl-core = { path = "../cntrl-core" }
-iced = { version = "0.14", features = ["tokio", "canvas", "image"] }
+iced = { version = "0.14", features = ["tokio", "canvas", "image", "svg"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }

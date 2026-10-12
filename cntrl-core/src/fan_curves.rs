@@ -24,6 +24,52 @@ pub struct CurvePoint {
     pub duty_pct: u8,
 }
 
+/// How the fans should sound. A preset replaces the shape of every graph
+/// curve (each fan keeps its sensor and limits); `Custom` uses the stored points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FanMode {
+    Silent,
+    Balanced,
+    Performance,
+    #[default]
+    Custom,
+}
+
+const fn pt(temp_c: f32, duty_pct: u8) -> CurvePoint {
+    CurvePoint { temp_c, duty_pct }
+}
+
+impl FanMode {
+    pub const ALL: [FanMode; 4] =
+        [FanMode::Silent, FanMode::Balanced, FanMode::Performance, FanMode::Custom];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FanMode::Silent => "Silent",
+            FanMode::Balanced => "Balanced",
+            FanMode::Performance => "Performance",
+            FanMode::Custom => "Custom",
+        }
+    }
+
+    /// The preset's curve (docs/design/HANDOFF.md); `None` for `Custom`.
+    pub fn preset(self) -> Option<&'static [CurvePoint]> {
+        const SILENT: [CurvePoint; 5] =
+            [pt(30.0, 20), pt(50.0, 25), pt(65.0, 40), pt(80.0, 70), pt(90.0, 100)];
+        const BALANCED: [CurvePoint; 5] =
+            [pt(30.0, 20), pt(50.0, 40), pt(70.0, 75), pt(85.0, 100), pt(95.0, 100)];
+        const PERFORMANCE: [CurvePoint; 5] =
+            [pt(30.0, 35), pt(45.0, 55), pt(60.0, 80), pt(75.0, 100), pt(90.0, 100)];
+        match self {
+            FanMode::Silent => Some(&SILENT),
+            FanMode::Balanced => Some(&BALANCED),
+            FanMode::Performance => Some(&PERFORMANCE),
+            FanMode::Custom => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CurveKind {
@@ -85,6 +131,7 @@ pub struct FanCurveConfig {
     pub min_change_pct: u8,
     /// Master enable for the control engine.
     pub enabled: bool,
+    pub mode: FanMode,
 }
 
 impl Default for FanCurveConfig {
@@ -96,6 +143,7 @@ impl Default for FanCurveConfig {
             temp_smoothing_alpha: default_alpha(),
             min_change_pct: default_min_change(),
             enabled: false,
+            mode: FanMode::default(),
         }
     }
 }
@@ -129,7 +177,7 @@ impl FanCurveConfig {
                 if let Some(also) = also_sensor_id {
                     t = t.max(*temps.get(also)?);
                 }
-                Some(eval_graph(points, t))
+                Some(eval_graph(self.mode.preset().unwrap_or(points), t))
             }
             CurveKind::Mix { member_ids } => {
                 let mut best = 0u8;
@@ -640,6 +688,29 @@ mod tests {
         assert_eq!(cfg.eval_curve("c", &temps), Some(90));
         temps.remove("gpu");
         assert_eq!(cfg.eval_curve("c", &temps), None);
+    }
+
+    #[test]
+    fn preset_mode_replaces_the_curve_shape_and_custom_keeps_it() {
+        let mut cfg = FanCurveConfig::default();
+        cfg.curves.push(Curve {
+            id: "c".into(),
+            name: "c".into(),
+            kind: CurveKind::Graph {
+                sensor_id: "cpu".into(),
+                also_sensor_id: None,
+                points: vec![pt(0.0, 90), pt(100.0, 90)],
+            },
+        });
+        let temps = HashMap::from([("cpu".to_string(), 50.0)]);
+        assert_eq!(cfg.eval_curve("c", &temps), Some(90));
+        cfg.mode = FanMode::Silent;
+        assert_eq!(cfg.eval_curve("c", &temps), Some(25));
+        cfg.mode = FanMode::Performance;
+        assert_eq!(cfg.eval_curve("c", &temps), Some(63));
+        // A config written before modes existed loads as Custom.
+        let old: FanCurveConfig = serde_json::from_str("{\"enabled\":true}").unwrap();
+        assert_eq!(old.mode, FanMode::Custom);
     }
 
     #[test]
