@@ -72,7 +72,7 @@ fn to_units(bounds: Rectangle, p: Point) -> (f32, f32) {
 
 /// Topmost device under a canvas-unit point (reverse draw order).
 fn hit_test(layout: &CanvasLayout, unit: (f32, f32)) -> Option<&canvas::PlacedDevice> {
-    layout.devices.iter().rev().filter(|d| d.present).find(|d| {
+    layout.devices.iter().rev().filter(|d| d.present && d.enabled).find(|d| {
         layout
             .spec(&d.id)
             .is_some_and(|spec| d.placement.contains(spec.size, unit))
@@ -156,8 +156,9 @@ impl icanvas::Program<Message> for Scene<'_> {
         let to_px = |unit: (f32, f32)| Point::new(o.x + unit.0 * ppu, o.y + unit.1 * ppu);
 
         for (dev_index, d) in self.layout.devices.iter().enumerate() {
-            // Hardware that isn't there is not drawn (its placement is kept).
-            let Some(spec) = self.layout.spec(&d.id).filter(|_| d.present) else {
+            // Hardware that isn't there or is switched off is not drawn (its
+            // placement is kept); the chip row switches it back on.
+            let Some(spec) = self.layout.spec(&d.id).filter(|_| d.present && d.enabled) else {
                 continue;
             };
             let pl = &d.placement;

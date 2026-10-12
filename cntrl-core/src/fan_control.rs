@@ -187,6 +187,8 @@ pub struct FanReadings {
     pub temps_c: HashMap<String, f32>,
     pub rpm: HashMap<String, u32>,
     pub pwm_raw: HashMap<String, u32>,
+    /// Channels currently in manual mode, i.e. driven by software.
+    pub manual: std::collections::HashSet<String>,
 }
 
 impl FanDiscovery {
@@ -211,6 +213,9 @@ impl FanDiscovery {
             }
             if let Ok(pwm) = c.read_pwm() {
                 r.pwm_raw.insert(c.id.clone(), pwm);
+            }
+            if c.read_enable() == Some(PWM_ENABLE_MANUAL) {
+                r.manual.insert(c.id.clone());
             }
         }
         r

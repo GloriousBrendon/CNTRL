@@ -2321,7 +2321,7 @@ fn canvas_view(app: &App) -> Element<'_, Message> {
             palette_row,
             layer_row,
             hairline_divider(colors),
-            row![card_label("DEVICES", colors), chips]
+            row![card_label("DEVICES", colors), chips.wrap()]
                 .spacing(14)
                 .align_y(Alignment::Center),
             row![
@@ -2519,7 +2519,17 @@ fn fans_view(app: &App) -> Element<'_, Message> {
         let name = if ch.label.is_empty() {
             ch.id.clone()
         } else {
-            format!("{}  ({})", ch.label, ch.id)
+            ch.label.clone()
+        };
+        // A curve is set and the engine is on, yet the fan is not in manual
+        // mode: the driver refused it (amdgpu) or the engine handed it back.
+        let held = if assigned
+            && app.fan_curve_cfg.enabled
+            && !app.fan_readings.manual.contains(&ch.id)
+        {
+            " · firmware is in control, curve not applied"
+        } else {
+            ""
         };
         let mut title = row![text(name).size(14)].spacing(8).align_y(Alignment::Center);
         if ch.experimental {
@@ -2535,7 +2545,7 @@ fn fans_view(app: &App) -> Element<'_, Message> {
                 fan_status_pill(ch.status),
             ]
             .align_y(Alignment::Center),
-            text(format!("{rpm} · duty {duty}")).size(11).color(muted(colors)),
+            text(format!("{rpm} · duty {duty}{held}")).size(11).color(muted(colors)),
         ]
         .spacing(4);
         list = list.push(
@@ -2570,7 +2580,16 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
     use cntrl_core::fan_control::FanChannelStatus;
     let colors = &app.colors;
 
-    let Some(sel) = app.fan_selected.clone() else {
+    // Nothing picked yet: open on the first fan that has a curve.
+    let first = || {
+        let chans = &app.fan_discovery.channels;
+        chans
+            .iter()
+            .find(|c| app.assignment_for(&c.id).is_some() && c.chip != "amdgpu")
+            .or(chans.first())
+            .map(|c| c.id.clone())
+    };
+    let Some(sel) = app.fan_selected.clone().or_else(first) else {
         return placeholder_card("Select a fan channel to edit its curve.", colors);
     };
     let Some(channel) = app.fan_discovery.channel(&sel) else {
@@ -2739,7 +2758,12 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
 
     container(
         column![
-            text(sel.clone()).size(18),
+            text(if channel.label.is_empty() {
+                sel.clone()
+            } else {
+                format!("{}  ·  {sel}", channel.label)
+            })
+            .size(18),
             sensor_row,
             also_row,
             container(editor).padding(8).style(card(colors)),
