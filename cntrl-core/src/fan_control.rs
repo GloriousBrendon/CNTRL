@@ -130,8 +130,10 @@ impl FanChannel {
     /// Chip-specific hint for why manual mode may be refused.
     fn manual_hint(&self) -> String {
         if self.chip == "amdgpu" {
-            " — amdgpu overdrive is likely disabled; boot with \
-             amdgpu.ppfeaturemask=0xffffffff to unlock fan control"
+            // Radeon RX 7000 and newer ignore pwm1 by design; their fan is set
+            // through gpu_od/fan_ctrl/fan_curve, which CNTRL does not drive yet.
+            " — this GPU's firmware keeps its own fan curve (normal on Radeon \
+             RX 7000 and newer); remove the curve from this fan"
                 .to_string()
         } else {
             String::new()

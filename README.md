@@ -15,7 +15,7 @@ CNTRL only shows and drives what it detects. This is what it knows today:
 | **ITE IT5702** motherboard RGB (`048d:5702`, Gigabyte RGB Fusion 2) | Two ARGB headers per LED (fans and strips), 12V RGB header, the board's own zones | Tested on a B650 AORUS ELITE AX V2 |
 | **AMD Radeon** GPU with Gigabyte RGB over i2c | One colour for the whole card | Streams colour only; never writes the card's flash |
 | **Corsair DDR5** RGB RAM (SMBus) | Per-LED colour, about 9 updates a second | Rate-limited: the controller rejects faster writes |
-| **Fans** on any `hwmon` chip with `pwmN` + `pwmN_enable` | Temperature curves | `amdgpu` out of the box; Gigabyte boards need the out-of-tree `it87` driver (see Fan control) |
+| **Fans** on any `hwmon` chip with `pwmN` + `pwmN_enable` | Temperature curves | `amdgpu` up to RX 6000 out of the box; Gigabyte boards need the out-of-tree `it87` driver (see Fan control) |
 
 Other hardware is not supported yet. Adding a device means a backend in
 `cntrl-core/src/` (see `gpu_rgb.rs` for the smallest one) and a line in the
@@ -103,7 +103,7 @@ Detection covers the common case. These environment variables override it for ot
 
 The **Fans** tab is a native equivalent of Windows' *Fan Control*: it reads temperature sensors from `/sys/class/hwmon` and drives fan PWM channels with custom curves. No external tools — plain sysfs, same "native-only" philosophy as the lighting.
 
-- **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. The **GPU fan** (`amdgpu`) works out of the box; motherboard headers need the `it87` driver (below). Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
+- **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. The **GPU fan** (`amdgpu`) works out of the box on cards up to the RX 6000 series (RX 7000 and newer keep their own fan curve and ignore `pwm1`; not supported yet); motherboard headers need the `it87` driver (below). Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
 - **Curves:** drag points on the graph (temp on X, duty% on Y), click empty space to add a point, right-click to delete. Linear interpolation with clamped ends, exactly like Fan Control. Each channel also has a **min/max duty** envelope. Temps are EMA-smoothed (the "Response Time" knob) and a small change threshold prevents fan hunting.
 - **The engine:** enable it with the **Enable engine** toggle (or `enabled: true` in `~/.config/cntrl/fan_curves.json`). It runs inside `cntrl daemon`, or standalone in the foreground via `cntrl fans run`. The GUI only edits the JSON; the engine picks up changes on its next tick — the same relationship the theme watcher has with `settings.json`.
 - **Safety:** before the engine first drives a fan it records the fan's original mode. It hands the fan back to firmware control on Ctrl-C, SIGTERM or a panic, when you untick **Enable engine**, when you remove the fan's curve, and when the sensor its curve reads disappears (it takes the fan back when the sensor returns). Only one engine can run at a time. `SIGKILL` (`kill -9`) can't be trapped — if that happens, `cntrl fans restore` puts the fans back.
