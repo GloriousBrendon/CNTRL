@@ -1,0 +1,23 @@
+post_install() {
+  cat <<'MSG'
+==> CNTRL: devices are opened through the 'users' group. Replug the keyboard
+    (or reboot) so the new udev rules apply.
+
+    Background service (effects, theme sync, fan curves), as your user:
+      systemctl --user enable --now cntrl-daemon.service cntrl-restore.service
+    Lighting back after suspend:
+      sudo systemctl enable cntrl-resume@$USER.service
+
+    RAM and graphics-card lighting need the i2c-dev module:
+      echo i2c-dev | sudo tee /etc/modules-load.d/i2c-dev.conf
+    Motherboard fans on Gigabyte boards need it87-dkms-git and:
+      echo it87 | sudo tee /etc/modules-load.d/cntrl-it87.conf
+
+    Start the app with: cntrl panel
+MSG
+}
+
+post_upgrade() {
+  echo "==> CNTRL: restart the background service to run the new version:"
+  echo "      systemctl --user restart cntrl-daemon.service"
+}

@@ -1,0 +1,71 @@
+# Maintainer: Brendon <74231476+GloriousBrendon@users.noreply.github.com>
+pkgname=cntrl
+pkgver=0.7.0
+pkgrel=1
+pkgdesc="Native RGB lighting and fan control: keyboard, ARGB headers, GPU and RAM as one canvas, plus fan curves"
+arch=('x86_64')
+url="https://github.com/GloriousBrendon/CNTRL"
+license=('MIT OR Apache-2.0')
+depends=('gcc-libs' 'glibc' 'systemd-libs')
+makedepends=('cargo')
+optdepends=(
+  'grim: Screen Ambient effect (wlroots compositors)'
+  'libpulse: audio-reactive effects (parec)'
+  'it87-dkms-git: fan control on Gigabyte boards with ITE chips'
+)
+# hidapi's C code is linked statically; with makepkg's LTO flags its objects
+# are bitcode the Rust linker cannot read.
+options=('!lto')
+install=cntrl.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('177df3753ce7b6e48cd56651fb66d0d42502b9cc508a7480b9375efd6989d1e5')
+
+_env() {
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  # Keep the builder's home directory (cargo's registry path) out of the binary.
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=/build"
+}
+
+prepare() {
+  cd "CNTRL-$pkgver"
+  _env
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "CNTRL-$pkgver"
+  _env
+  cargo build --frozen --release -p cntrl-cli
+}
+
+check() {
+  cd "CNTRL-$pkgver"
+  _env
+  cargo test --frozen --release -p cntrl-core
+}
+
+package() {
+  cd "CNTRL-$pkgver"
+  install -Dm755 target/release/cntrl "$pkgdir/usr/bin/cntrl"
+
+  install -Dm644 packaging/udev/99-mchose-ace68.rules "$pkgdir/usr/lib/udev/rules.d/99-mchose-ace68.rules"
+  install -Dm644 packaging/udev/99-cntrl-hwmon.rules "$pkgdir/usr/lib/udev/rules.d/99-cntrl-hwmon.rules"
+  install -Dm644 packaging/desktop/cntrl.desktop "$pkgdir/usr/share/applications/cntrl.desktop"
+
+  # The units are written for /usr/local/bin (scripts/install.sh); a package
+  # installs to /usr/bin. cntrl-rgb-probe.service is left out: it is tied to
+  # one user account and the panel runs the same probe when it starts.
+  local unit
+  for unit in cntrl-daemon.service cntrl-restore.service; do
+    sed 's|/usr/local/bin/cntrl|/usr/bin/cntrl|' "packaging/systemd/$unit" |
+      install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/$unit"
+  done
+  sed 's|/usr/local/bin/cntrl|/usr/bin/cntrl|' 'packaging/systemd/cntrl-resume@.service' |
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/system/cntrl-resume@.service"
+
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
+}

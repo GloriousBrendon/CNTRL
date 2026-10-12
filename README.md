@@ -34,6 +34,12 @@ cntrl devices                             # what was detected, and why anything 
 cntrl panel                               # the app
 ```
 
+On Arch-based systems you can build a package instead:
+
+```bash
+cd packaging/arch && makepkg -si      # then follow the notes it prints
+```
+
 Or, without building: download the archive from the latest
 [release](https://github.com/GloriousBrendon/CNTRL/releases), unpack it, and run the same
 `./scripts/install.sh` from inside it.
