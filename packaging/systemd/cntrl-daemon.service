@@ -10,6 +10,8 @@ After=graphical-session.target
 Type=simple
 ExecStartPre=-/bin/rm -f %t/cntrl/daemon.sock
 ExecStart=/usr/local/bin/cntrl daemon
+# If the daemon is killed or crashes, no fan may stay at a fixed speed.
+ExecStopPost=-/usr/local/bin/cntrl fans restore
 Restart=on-failure
 RestartSec=3
 RuntimeDirectory=cntrl
