@@ -28,6 +28,7 @@ pub struct StreamShared {
     pub layout: CanvasLayout,
     /// Device id to single out on the hardware (solid white, first wire LED
     /// red, everything else dark) — for finding which physical fan is which.
+    /// Several ids separated by commas light a whole device (all its zones).
     pub identify: Option<String>,
 }
 
@@ -476,7 +477,7 @@ fn sample_if_enabled(
         return Some(canvas::sample_device(frame, &spec, placed, brightness));
     };
     let n = spec.led_positions.len();
-    if target != id {
+    if !target.split(',').any(|t| t == id) {
         return Some(vec![[0, 0, 0]; n]);
     }
     let mut colors = vec![[255, 255, 255]; n];

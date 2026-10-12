@@ -100,6 +100,17 @@ pub struct FanAssignment {
     pub min_duty_pct: u8,
     #[serde(default = "default_max_duty")]
     pub max_duty_pct: u8,
+    /// "This is a pump": own curve in every mode and the pump floor. `None`
+    /// goes by the header's name (PUMP anywhere in it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pump: Option<bool>,
+}
+
+impl FanAssignment {
+    /// Is the fan on `channel` treated as a pump?
+    pub fn is_pump(&self, channel: &FanChannel) -> bool {
+        self.pump.unwrap_or_else(|| channel.is_pump())
+    }
 }
 
 fn default_min_duty() -> u8 {
@@ -370,7 +381,7 @@ fn apply_assignment(
         return unsupported(format!("channel {} not present", a.channel_id));
     };
     // A pump is not part of the presets: it keeps its own curve.
-    let pump = channel.is_pump();
+    let pump = a.is_pump(channel);
     let evaluated = if pump {
         cfg.eval_own_curve(&a.curve_id, temps)
     } else {
@@ -728,9 +739,17 @@ mod tests {
         tick(&cfg, &d, &mut TickState::default(), false);
         assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(100).to_string(), "Silent would give 25%");
 
-        // The same header without the pump name follows the preset.
+        // The same header without the pump name follows the preset ...
         let plain = crate::fan_control::discover_in(&root, &[]);
         tick(&cfg, &plain, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(25).to_string());
+        // ... unless it was marked as a pump by hand,
+        cfg.assignments[0].pump = Some(true);
+        tick(&cfg, &plain, &mut TickState::default(), false);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(100).to_string());
+        // and a case fan on a header named PUMP can be un-marked.
+        cfg.assignments[0].pump = Some(false);
+        tick(&cfg, &d, &mut TickState::default(), false);
         assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(25).to_string());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -885,6 +904,7 @@ mod tests {
                 curve_id: "c".into(),
                 min_duty_pct: 20,
                 max_duty_pct: 100,
+                pump: None,
             }],
             ..FanCurveConfig::default()
         }

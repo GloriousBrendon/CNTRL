@@ -1,4 +1,4 @@
-//! Ace68 68-key layout geometry (shared by GTK canvas and ICED canvas). Units: 15 wide × 5 rows.
+//! Ace68 68-key layout geometry (shared by GTK canvas and ICED canvas). Units: 16 wide × 5 rows.
 
 #[derive(Clone, Debug)]
 pub struct Key {
@@ -66,21 +66,30 @@ pub fn get_keyboard_layout() -> Vec<Key> {
         Key { label: "⇧", x: 12.25, y: 3.0, width: 1.75, idx: 52 },
         Key { label: "↑", x: 14.0, y: 3.0, width: 1.0, idx: 53 },
         Key { label: "Ctrl", x: 0.0, y: 4.0, width: 1.25, idx: 54 },
-        Key { label: "⊞", x: 1.25, y: 4.0, width: 1.0, idx: 55 },
-        Key { label: "Alt", x: 2.25, y: 4.0, width: 1.25, idx: 56 },
-        Key { label: "Space", x: 3.5, y: 4.0, width: 6.25, idx: 57 },
-        Key { label: "Alt", x: 9.75, y: 4.0, width: 1.25, idx: 58 },
-        Key { label: "Ctrl", x: 11.0, y: 4.0, width: 1.0, idx: 59 },
-        Key { label: "←", x: 12.0, y: 4.0, width: 1.0, idx: 60 },
-        Key { label: "↓", x: 13.0, y: 4.0, width: 1.0, idx: 61 },
-        Key { label: "→", x: 14.0, y: 4.0, width: 1.0, idx: 62 },
+        Key { label: "⊞", x: 1.25, y: 4.0, width: 1.25, idx: 55 },
+        Key { label: "Alt", x: 2.5, y: 4.0, width: 1.25, idx: 56 },
+        Key { label: "Space", x: 3.75, y: 4.0, width: 6.25, idx: 57 },
+        Key { label: "Alt", x: 10.0, y: 4.0, width: 1.0, idx: 58 },
+        Key { label: "Ctrl", x: 12.0, y: 4.0, width: 1.0, idx: 59 },
+        Key { label: "←", x: 13.0, y: 4.0, width: 1.0, idx: 60 },
+        Key { label: "↓", x: 14.0, y: 4.0, width: 1.0, idx: 61 },
+        Key { label: "→", x: 15.0, y: 4.0, width: 1.0, idx: 62 },
+        // The right-hand column and Fn. Appended so the indices above stay
+        // what they were. Fn's place (between Alt and Ctrl) is from the
+        // manual; the column's top-to-bottom order is inferred from the
+        // key matrix, not seen on the board.
+        Key { label: "Ins", x: 15.0, y: 0.0, width: 1.0, idx: 63 },
+        Key { label: "Del", x: 15.0, y: 1.0, width: 1.0, idx: 64 },
+        Key { label: "PgUp", x: 15.0, y: 2.0, width: 1.0, idx: 65 },
+        Key { label: "PgDn", x: 15.0, y: 3.0, width: 1.0, idx: 66 },
+        Key { label: "Fn", x: 11.0, y: 4.0, width: 1.0, idx: 67 },
     ]
 }
 
 /// HID usage code for each key, aligned with `get_keyboard_layout()` order.
 /// Left/right modifiers are distinguished by position (225/229 = L/R Shift,
 /// 224/228 = L/R Ctrl, 226/230 = L/R Alt, 227 = Win).
-pub fn hid_usage_codes() -> [u16; 63] {
+pub fn hid_usage_codes() -> [u16; 68] {
     [
         // Row 0: Esc 1..0 - = Bksp
         41, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 45, 46, 42,
@@ -92,6 +101,8 @@ pub fn hid_usage_codes() -> [u16; 63] {
         225, 29, 27, 6, 25, 5, 17, 16, 54, 55, 56, 229, 82,
         // Row 4: LCtrl Win LAlt Space RAlt RCtrl Left Down Right
         224, 227, 226, 44, 230, 228, 80, 81, 79,
+        // Ins Del PgUp PgDn, and Fn (the vendor's own code for it)
+        73, 76, 75, 78, 1,
     ]
 }
 
@@ -103,7 +114,7 @@ pub fn key_index_at(width: f32, height: f32, x: f32, y: f32) -> Option<usize> {
     let layout = get_keyboard_layout();
     let width_f = width;
     let height_f = height;
-    let base_unit = width_f / 15.0;
+    let base_unit = width_f / 16.0;
     let row_height = height_f / 5.0;
 
     for key in &layout {

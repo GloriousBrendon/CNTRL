@@ -364,6 +364,8 @@ struct App {
     canvas_hex: String,
     /// Devices screen: the card whose details are open (backend id).
     device_open: Option<&'static str>,
+    /// Devices screen: the kind being identified (all its zones light up).
+    device_identify: Option<TargetKind>,
     /// Identify started the stream itself, so stopping Identify stops it too.
     identify_owns_stream: bool,
     /// Background service starts at login (`None`: unit not installed).
@@ -481,6 +483,7 @@ impl App {
             fx_thumbs: stream_thumbs(),
             canvas_hex: String::new(),
             device_open: None,
+            device_identify: None,
             identify_owns_stream: false,
             service_enabled: None,
             desktop_accent: None,
@@ -615,6 +618,8 @@ impl App {
     /// Stop whichever stream is running (an explicit Apply wins over it).
     fn stop_canvas_stream(&mut self) {
         self.canvas_identify = false;
+        self.device_identify = None;
+        self.identify_owns_stream = false;
         if let Some(stream) = self.canvas_stream.take() {
             stream.stop();
             self.canvas_status = "Stream stopped".into();
@@ -635,13 +640,22 @@ impl App {
         }
     }
 
+    /// What the stream should single out: every zone of the device being
+    /// identified on the Devices screen, else the Layout tab's selection.
+    fn identify_target(&self) -> Option<String> {
+        match self.device_identify {
+            Some(kind) => Some(layout_ids(self, kind).join(",")),
+            None => self.canvas_identify.then(|| self.canvas_selected.clone()).flatten(),
+        }
+    }
+
     /// Send pending edits to the daemon's stream, or ask how it is doing.
     fn exchange_with_daemon(&mut self) {
         use cntrl_core::ipc::{canvas_request, Request};
         let req = if std::mem::take(&mut self.canvas_dirty) {
             Request::CanvasUpdate {
                 layout: self.canvas_layout.clone(),
-                identify: self.canvas_identify.then(|| self.canvas_selected.clone()).flatten(),
+                identify: self.identify_target(),
             }
         } else {
             Request::CanvasStatus
@@ -662,10 +676,7 @@ impl App {
         self.canvas_dirty = self.canvas_remote;
         if let Some(stream) = &self.canvas_stream {
             if let Ok(mut shared) = stream.shared.lock() {
-                shared.identify = self
-                    .canvas_identify
-                    .then(|| self.canvas_selected.clone())
-                    .flatten();
+                shared.identify = self.identify_target();
                 shared.layout = self.canvas_layout.clone();
             }
         }
@@ -811,6 +822,8 @@ pub(crate) enum Message {
     FanSetAlsoSensor(String, Option<String>),
     /// Silent / Balanced / Performance / Custom.
     FanSetMode(cntrl_core::fan_curves::FanMode),
+    /// "This is a pump" for a channel.
+    FanSetPump(String, bool),
     /// Min duty floor for a channel (percent).
     FanMinDuty(String, f32),
 }
@@ -912,17 +925,14 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::DeviceIdentify(kind) => {
-            let first = layout_ids(app, kind).first().map(|id| id.to_string());
-            let on = app.canvas_identify && app.canvas_selected == first;
-            if on {
-                app.canvas_identify = false;
+            if app.device_identify == Some(kind) {
+                app.device_identify = None;
                 app.sync_stream();
                 if std::mem::take(&mut app.identify_owns_stream) && app.streaming() {
                     return Task::done(Message::CanvasStreamToggle);
                 }
-            } else if first.is_some() {
-                app.canvas_selected = first;
-                app.canvas_identify = true;
+            } else if !layout_ids(app, kind).is_empty() {
+                app.device_identify = Some(kind);
                 if app.streaming() {
                     app.sync_stream();
                 } else {
@@ -1449,6 +1459,7 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 curve_id,
                 min_duty_pct: 20,
                 max_duty_pct: 100,
+                pump: None,
             });
             app.fan_selected = Some(channel_id);
             app.save_fan_cfg();
@@ -1456,10 +1467,10 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::FanSetMode(mode) => {
             app.fan_curve_cfg.mode = mode;
-            // First mode ever picked: put every motherboard fan on sensible
-            // sensors. CPU cooler and pump follow the CPU; case fans follow the
-            // hotter of CPU and graphics card. Done once, so later changes
-            // (other sensors, fans handed back to the BIOS) stay as they are.
+            // First mode ever picked: give every motherboard fan that has no
+            // sensor yet a sensible one. CPU cooler and pump follow the CPU;
+            // case fans follow the hotter of CPU and graphics card. Fans that
+            // already have a sensor are left exactly as they are.
             if !app.fan_curve_cfg.sensors_seeded {
                 use cntrl_core::fan_control::FanChannelStatus::Controllable;
                 use cntrl_core::fan_curves::CurveKind;
@@ -1470,35 +1481,26 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                     .find(|s| s.id.starts_with("amdgpu/") && s.label == "edge")
                     .or_else(|| app.fan_discovery.sensors.iter().find(|s| s.chip == "amdgpu"))
                     .map(|s| s.id.clone());
-                // (channel, CPU sensor, also follows the GPU, is a pump)
-                let todo: Vec<(String, String, bool, bool)> = app
+                // (channel, CPU sensor, is a case fan)
+                let todo: Vec<(String, String, bool)> = app
                     .fan_discovery
                     .channels
                     .iter()
                     .filter(|c| c.chip != "amdgpu" && c.status == Controllable)
+                    .filter(|c| app.assignment_for(&c.id).is_none())
                     .filter_map(|c| {
                         let label = c.label.to_ascii_uppercase();
                         let cooler = c.is_pump() || label == "CPU_FAN" || label == "CPU_OPT";
-                        Some((c.id.clone(), default_sensor_for(app, &c.id)?, !cooler, c.is_pump()))
+                        Some((c.id.clone(), default_sensor_for(app, &c.id)?, !cooler))
                     })
                     .collect();
                 let keep = app.fan_selected.clone();
-                for (channel, cpu, case_fan, pump) in todo {
-                    if app.assignment_for(&channel).is_none() {
-                        let _ = update_inner(app, Message::FanCreateAssignment(channel.clone(), cpu.clone()));
-                    }
+                for (channel, cpu, case_fan) in todo {
+                    let _ = update_inner(app, Message::FanCreateAssignment(channel.clone(), cpu));
                     let curve_id = App::curve_id_for(&channel);
                     if let Some(c) = app.fan_curve_cfg.curves.iter_mut().find(|c| c.id == curve_id) {
-                        if let CurveKind::Graph { sensor_id, also_sensor_id, .. } = &mut c.kind {
-                            *sensor_id = cpu;
-                            *also_sensor_id = if case_fan { gpu.clone() } else { None };
-                        }
-                    }
-                    if pump {
-                        let floor = cntrl_core::fan_control::PUMP_MIN_DUTY_PCT;
-                        if let Some(a) = app.fan_curve_cfg.assignments.iter_mut().find(|a| a.channel_id == channel) {
-                            a.min_duty_pct = a.min_duty_pct.max(floor);
-                            a.max_duty_pct = a.max_duty_pct.max(floor);
+                        if let (true, CurveKind::Graph { also_sensor_id, .. }) = (case_fan, &mut c.kind) {
+                            *also_sensor_id = gpu.clone();
                         }
                     }
                 }
@@ -1571,6 +1573,13 @@ fn update_inner(app: &mut App, message: Message) -> Task<Message> {
                 if let cntrl_core::fan_curves::CurveKind::Graph { also_sensor_id: s, .. } = &mut c.kind {
                     *s = sensor_id;
                 }
+            }
+            app.save_fan_cfg();
+            Task::none()
+        }
+        Message::FanSetPump(channel_id, on) => {
+            if let Some(a) = app.fan_curve_cfg.assignments.iter_mut().find(|a| a.channel_id == channel_id) {
+                a.pump = Some(on);
             }
             app.save_fan_cfg();
             Task::none()
@@ -3259,7 +3268,8 @@ fn sync_view(app: &App) -> Element<'_, Message> {
                 "Keep running in the background",
                 if installed {
                     "Needed for animated and reactive effects, theme sync and fan curves. \
-                     Closing the window keeps it running."
+                     Closing the window keeps it running. Turning this off hands the fans \
+                     back to the BIOS."
                 } else {
                     no_unit
                 },
@@ -3498,11 +3508,7 @@ fn devices_view(app: &App) -> Element<'_, Message> {
             DeviceStatus::Absent => (tokens::TEXT_DISABLED, tokens::TEXT_MUTED),
         };
         let open = app.device_open == Some(d.backend_id);
-        let identifying = app.canvas_identify
-            && app
-                .canvas_selected
-                .as_deref()
-                .is_some_and(|id| layout_ids(app, kind).contains(&id));
+        let identifying = app.device_identify == Some(kind);
 
         let mut top = row![
             container(lucide(glyph, 24.0, tokens::TEXT_NAV))
@@ -3649,18 +3655,21 @@ fn devices_view(app: &App) -> Element<'_, Message> {
 }
 
 /// What a person would call this fan; the board's own name goes underneath.
-fn fan_name(ch: &cntrl_core::fan_control::FanChannel) -> String {
+fn fan_name(app: &App, ch: &cntrl_core::fan_control::FanChannel) -> String {
     let label = ch.label.to_ascii_uppercase();
+    // "This is a pump" decides; without an answer the header's name does.
+    let pump = app.assignment_for(&ch.id).map_or(ch.is_pump(), |a| a.is_pump(ch));
     if ch.chip == "amdgpu" {
         "Graphics card".into()
-    } else if label.contains("PUMP") {
+    } else if pump {
         "Pump".into()
     } else if label == "CPU_FAN" {
         "CPU fan".into()
     } else if label == "CPU_OPT" {
         "CPU fan 2".into()
     } else if let Some(n) = label.strip_prefix("SYS_FAN") {
-        format!("Case fan {n}")
+        // "SYS_FAN4_PUMP" with a case fan on it is case fan 4.
+        format!("Case fan {}", n.trim_end_matches("_PUMP"))
     } else if ch.label.is_empty() {
         ch.id.clone()
     } else {
@@ -3852,7 +3861,7 @@ fn fans_view(app: &App) -> Element<'_, Message> {
             button(vcenter(
                 row![
                     column![
-                        text(fan_name(ch)).size(14).font(tokens::UI_SEMIBOLD),
+                        text(fan_name(app, ch)).size(14).font(tokens::UI_SEMIBOLD),
                         text(fan_raw(ch).to_string())
                             .size(12)
                             .font(tokens::MONO)
@@ -3976,13 +3985,13 @@ fn fan_card(app: &App) -> Element<'_, Message> {
     };
     let head = row![
         column![
-            text(fan_name(ch)).size(20).font(tokens::UI_SEMIBOLD),
+            text(fan_name(app, ch)).size(20).font(tokens::UI_SEMIBOLD),
             text(summary).size(14).color(tokens::TEXT_SECONDARY),
         ]
         .spacing(2)
         .width(Length::Fill),
         container(
-            text(if ch.is_pump() && cfg.mode != FanMode::Custom {
+            text(if assignment.is_some_and(|a| a.is_pump(ch)) && cfg.mode != FanMode::Custom {
                 "Own curve".to_string()
             } else {
                 format!("{} curve", cfg.mode.label())
@@ -4062,7 +4071,7 @@ fn fan_card(app: &App) -> Element<'_, Message> {
             })
             .unwrap_or((&[], String::new(), None));
     // A pump is outside the presets: its own curve, editable in every mode.
-    let pump = ch.is_pump();
+    let pump = assignment.is_pump(ch);
     let custom = cfg.mode == FanMode::Custom || pump;
     let points = if custom { stored } else { cfg.mode.preset().unwrap_or(stored) };
 
@@ -4193,6 +4202,27 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         .width(Length::FillPortion(1))
         .align_x(Alignment::End);
         body = body.push(row![field("Or this one, if it is hotter", also.into()), release].spacing(16));
+    }
+    // Reachable in Custom, and wherever it is already on (to switch it off).
+    if cfg.mode == FanMode::Custom || pump {
+        body = body.push(
+            row![
+                column![
+                    text("This is a pump").size(14).font(tokens::UI_MEDIUM),
+                    text(format!(
+                        "Never below {}%, and it keeps this curve whatever mode is chosen.",
+                        cntrl_core::fan_control::PUMP_MIN_DUTY_PCT
+                    ))
+                    .size(13)
+                    .color(tokens::TEXT_SECONDARY),
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+                switch(pump, app.accent(), Some(Message::FanSetPump(ch.id.clone(), !pump))),
+            ]
+            .spacing(20)
+            .align_y(Alignment::Center),
+        );
     }
     card(body)
 }

@@ -316,7 +316,7 @@ fn keyboard_spec() -> LedSpec {
     LedSpec {
         id: DEV_KEYBOARD.to_string(),
         name: "Keyboard".to_string(),
-        size: (15.0, 5.0),
+        size: (16.0, 5.0),
         led_positions,
         is_fan: false,
         // Per-key live frames via the 0xDD protocol (mchose_direct).

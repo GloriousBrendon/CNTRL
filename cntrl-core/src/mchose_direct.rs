@@ -278,7 +278,9 @@ mod tests {
     #[test]
     fn led_index_covers_every_layout_key() {
         let indices = layout_led_indices();
-        assert_eq!(indices.len(), 63);
+        // Every key the vendor table lights is in the layout: none left dark.
+        assert_eq!(indices.len(), LED_INDEX.len());
+        assert_eq!(indices.len(), 68);
         for (i, idx) in indices.iter().enumerate() {
             assert!(idx.is_some(), "layout key {i} has no LED slot");
             assert!(idx.unwrap() < LIVE_FRAME_SLOTS);
