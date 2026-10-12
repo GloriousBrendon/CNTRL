@@ -870,8 +870,8 @@ saturation boost and a choice of full screen or edges only.
 **Status (2026-10-12):** effect `screen` added; picture verified, LEDs not watched by anyone
 yet. Smoothing is a blend of each grab into the last (black stays black). Works as base or as the
 layer on top. Not built: saturation boost (each device already has a saturation trim), edges-only
-mode, a monitor picker in the panel (`screen_output` in the layout file), and a live preview in
-the panel (it shows black for this effect).
+mode, and a monitor picker in the panel (`screen_output` in the layout file). The panel preview
+shows the live screen (checked with a screenshot).
 
 **Dependencies:** Task 33, Task 29
 **Files likely touched:** `cntrl-core/src/canvas_effects.rs`, `cntrl-iced/src/app.rs`

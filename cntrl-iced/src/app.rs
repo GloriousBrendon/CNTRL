@@ -466,6 +466,8 @@ struct App {
     canvas_ticks: u32,
     /// Audio levels the running stream renders with, mirrored in the preview.
     canvas_input: cntrl_core::canvas_effects::EffectInput,
+    /// Screen grabs for the preview of a screen effect (Canvas tab only).
+    canvas_screen: Option<(String, cntrl_core::screen::ScreenCapture)>,
     /// Canvas tab status line (stream stats / errors / push results).
     canvas_status: String,
     /// Identify mode: the stream lights only the selected device.
@@ -550,6 +552,7 @@ impl App {
             canvas_dirty: false,
             canvas_ticks: 0,
             canvas_input: Default::default(),
+            canvas_screen: None,
             canvas_status: String::new(),
             canvas_identify: false,
             canvas_color_idx: 0,
@@ -788,6 +791,9 @@ pub(crate) enum Message {
 fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::ThemePoll => {
+            if app.tab != ShellTab::Canvas {
+                app.canvas_screen = None; // no preview, no grabbing
+            }
             let path = theme::theme_file_path();
             let current = std::fs::metadata(&path)
                 .ok()
@@ -1015,6 +1021,18 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 // Nothing is capturing sound: preview audio effects in silence.
                 app.canvas_input = Default::default();
             }
+            // The screen is not sent over the daemon socket; the preview grabs its own.
+            let s = &app.canvas_layout.settings;
+            if !s.needs_screen() || app.canvas_screen.as_ref().is_some_and(|(o, _)| *o != s.screen_output) {
+                app.canvas_screen = None;
+            } else if app.canvas_screen.is_none() && app.canvas_ticks % 30 == 0 {
+                // Once a second at most: a failing grab must not spawn 30 processes a second.
+                match cntrl_core::screen::ScreenCapture::start(&s.screen_output) {
+                    Ok(c) => app.canvas_screen = Some((s.screen_output.clone(), c)),
+                    Err(e) => app.canvas_status = e,
+                }
+            }
+            app.canvas_input.screen = app.canvas_screen.as_ref().map(|(_, c)| c.frame());
             app.canvas_preview = canvas_tab::render_preview(&app.canvas_layout, t, &app.canvas_input);
             Task::none()
         }
