@@ -1,4 +1,4 @@
-//! Ace68 68-key layout geometry (shared by GTK canvas and ICED canvas). Units: 16 wide × 5 rows.
+//! Ace68 68-key layout geometry (used by the canvas). Units: 16 wide × 5 rows.
 
 #[derive(Clone, Debug)]
 pub struct Key {
@@ -106,7 +106,7 @@ pub fn hid_usage_codes() -> [u16; 68] {
     ]
 }
 
-/// Hit-test in widget pixel space (`width` × `height`), same math as GTK `key_index_at`.
+/// Hit-test in widget pixel space (`width` × `height`).
 pub fn key_index_at(width: f32, height: f32, x: f32, y: f32) -> Option<usize> {
     if width <= 0.0 || height <= 0.0 {
         return None;

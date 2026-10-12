@@ -1,4 +1,4 @@
-# Smoke checklist — lighting flow (GTK baseline)
+# Smoke checklist — lighting flow
 
 Use this **before and after** migration milestones to confirm behavior is unchanged unless intentionally documented.
 
@@ -11,8 +11,7 @@ Use this **before and after** migration milestones to confirm behavior is unchan
 **Launch**
 
 ```bash
-cargo run -p cntrl-gtk
-# or ICED: cargo run -p cntrl-cli -- panel
+cargo run -p cntrl-cli -- panel
 ```
 
 **Checks**

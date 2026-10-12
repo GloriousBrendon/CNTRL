@@ -2,7 +2,15 @@
 
 ## Status
 
-Accepted (Milestone 0 — strategy only; implementation follows later milestones).
+Accepted and completed (2026-10-12).
+
+- Milestones 1–4 shipped: `cntrl-core`, the iced panel (`cntrl panel`), the daemon with Unix-socket IPC.
+- Milestone 5 (GTK retirement) is done: the `cntrl-gtk` crate was removed. By then it was only a
+  launcher for the iced panel, its GTK screens were no longer compiled, and nothing in the repo
+  (desktop entry, systemd units, install script, packaging) started it. iced is the only UI.
+- Superseded part of decision 4: the panel no longer takes its colours from the rice theme file. It
+  uses the fixed tokens of `docs/design/HANDOFF.md`, tinted with the current lighting colour. The
+  theme file still drives the *lighting* (theme sync).
 
 ## Context
 

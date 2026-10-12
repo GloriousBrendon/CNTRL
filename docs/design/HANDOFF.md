@@ -1,7 +1,8 @@
 # CNTRL redesign — implementation handoff
 
 The `.dc.html` files are design mockups (HTML + inline styles + a small JS state class).
-Treat them as the visual/behavioural spec; port to the GTK (libadwaita) and iced frontends.
+Treat them as the visual/behavioural spec for the iced frontend (`cntrl-iced`), which is the only UI:
+the GTK app was retired (docs/adr/0001) and there is no GTK port.
 Ignore `support.js`, `<x-dc>`, `<sc-for>`, `<sc-if>` — they are the mockup runtime only.
 
 ## Navigation (sidebar)

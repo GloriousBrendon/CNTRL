@@ -1,5 +1,8 @@
 # Baseline behavior snapshot (pre–ICED migration)
 
+> **Historical.** The GTK app described here was removed on 2026-10-12 (ADR 0001); iced is the only UI.
+> Paths under `cntrl-gtk/` no longer exist.
+
 **Captured for:** GTK4 + libadwaita + Relm4 desktop (`cntrl-gtk` crate) and ICED (`cntrl-iced` / `cntrl panel`).  
 **Purpose:** Reproducible description of Linux HID lighting, effect mapping, profile persistence, and theming so reviewers can compare before/after migration.
 

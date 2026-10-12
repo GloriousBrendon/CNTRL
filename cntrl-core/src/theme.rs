@@ -1,11 +1,11 @@
 //! Pywal-style theme file: `~/.config/themes/colors.conf` with lines like `$key=rgba(rrggbbaa)`.
-//! Shared by GTK and ICED (no UI dependencies).
+//! No UI dependencies.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-/// Canonical keys written by common pywal / rice templates (subset used by CNTRL GTK).
+/// Canonical keys written by common pywal / rice templates (the subset CNTRL reads).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeColors {

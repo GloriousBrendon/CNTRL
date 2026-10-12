@@ -39,7 +39,7 @@ motherboard fan headers.
 > when it stops, is disabled, or loses the temperature sensor a curve depends
 > on — but a `kill -9` cannot be caught. `cntrl fans restore` recovers from that.
 
-The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`** binary: daemon / panel / devices / apply-theme), `cntrl-iced` (primary UI — full desktop panel), and `cntrl-gtk` (legacy compatibility launcher that opens the ICED panel). Build and run from the repository root.
+The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`** binary: daemon / panel / devices / apply-theme), and `cntrl-iced` (the UI — full desktop panel). iced is the only frontend; the earlier GTK app was retired (see ADR 0001). Build and run from the repository root.
 
 | Entry | Command |
 |-------|---------|
@@ -48,8 +48,7 @@ The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`*
 | `cntrl devices` | Native RGB device inventory + status |
 | `cntrl apply-theme` | Apply the theme accent to the lighting |
 | `cntrl daemon` | Unix socket daemon (foreground; HID apply + theme watcher) |
-| `cntrl canvas` | Stream a canvas effect across ARGB devices (headless; layout from the Canvas tab) |
-| GTK compatibility launcher | `cargo run -p cntrl-gtk` (opens ICED panel) |
+| `cntrl canvas` | Stream a canvas effect across ARGB devices (headless; layout from Lighting › Layout) |
 | ICED only | `cargo run -p cntrl-iced` (same UI as `cntrl panel`) |
 
 > **Native-only:** CNTRL drives all hardware directly via `hidraw`/`i2c`. It does **not** depend on OpenRGB or any external tool.
@@ -78,8 +77,8 @@ The **Canvas** tab maps every device onto one virtual effect surface: each devic
 - **Audio:** audio effects and the "Brightness follows the music" option listen to whatever your default output is playing. Capture uses `parec` (part of `pipewire-pulse` / PulseAudio) and runs only while something needs it.
 - **Screen Ambient:** the devices take their colours from what is on screen. Capture uses `grim`, so it needs a wlroots compositor (Hyprland, Sway); it grabs 10 times a second and runs only while the effect is active. By default it follows the whole desktop; to follow one monitor set `"screen_output": "DP-1"` under `settings` in `~/.config/cntrl/canvas_layout.json`.
 - **Live streaming:** each device family writes on its own thread at its own pace. At 60 fps the keyboard gets true **per-key** frames, the ARGB headers per-LED frames (about 50 a second), the GPU a sampled colour (never saved to its flash) and Corsair RAM per-LED SMBus writes (rate-limited). A device that fails or is unplugged is retried every two seconds. When a stream stops, every device returns to its saved lighting.
-- **Runs in the daemon:** with `cntrl daemon` running, the stream lives there — it survives closing the panel, and **Start at login** on the Canvas tab brings it back after a reboot. Without the daemon, the panel streams by itself. Applying a static colour from the Lighting tab stops the stream; a theme change while streaming is saved but does not write over the effect.
-- **Arrangement:** drag devices on the Canvas tab; selection supports rotate (90°) and scale. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
+- **Runs in the daemon:** with `cntrl daemon` running, the stream lives there — it survives closing the panel, and **Start at login** under Lighting › Layout brings it back after a reboot. Without the daemon, the panel streams by itself. Picking Static or Off under Lighting stops the stream; a theme change while streaming is saved but does not write over the effect.
+- **Arrangement:** drag devices under Lighting › Layout; a selected device can be rotated and resized. Layout + effect settings persist to `~/.config/cntrl/canvas_layout.json`.
 - **ARGB chains:** tell CNTRL what is plugged along each header — how many fans, how many LEDs per fan (8, 12 or 16), and an optional strip after them; a header can also be empty. Every fan becomes its own draggable ring. **Identify** lights only the selected device (first LED on the wire in red), so you can match each ring to its physical fan and toggle **Reverse** for backwards wiring.
 - **Board zones:** the motherboard's own lit zones appear as "Board zone N" and start disabled; enable one and use Identify to see which part of the board it is.
 - **Per-element trim:** each placed device has its own brightness, hue shift, and saturation sliders on top of the global effect settings.
@@ -166,11 +165,11 @@ CNTRL follows a pywal-style `~/.config/themes/colors.conf`; its `accent` key dri
   cntrl apply-theme --keyboard-only --slot 1
   ```
 
-- **Automatic (daemon watcher):** enable **Theme sync** in the Lighting tab (or set `theme_sync_enabled` in `~/.config/cntrl/settings.json`). While `cntrl daemon` runs, it watches `colors.conf` and re-applies on every change. The existing effect is preserved — presets keep animating, just recolored.
+- **Automatic (daemon watcher):** enable **Match my desktop theme** in Settings (or set `theme_sync_enabled` in `~/.config/cntrl/settings.json`). While `cntrl daemon` runs, it watches `colors.conf` and re-applies on every change. The existing effect is preserved — presets keep animating, just recolored.
 
-## Migration baseline (GTK → ICED)
+## Migration baseline (GTK → ICED, historical)
 
-Authoritative pre-migration snapshot and gates:
+The migration is finished and the GTK app is gone. These record how it was done:
 
 | Artifact | Path |
 |----------|------|
@@ -189,10 +188,9 @@ Authoritative pre-migration snapshot and gates:
 
    ```bash
    cargo run -p cntrl-cli -- panel
-   # compatibility alias: cargo run -p cntrl-gtk
    ```
 
-3. **Lighting** tab: choose **Static**, **Custom**, **Off**, or a **labeled** preset; set color where relevant; **Apply To Keyboard**. **Static** is not firmware id `3` — see baseline doc. Optional: `MCHOSE_HIDRAW=/dev/hidrawN` if auto-detection picks the wrong interface.
+3. **Lighting**: choose **Static**, **Custom**, **Off**, or a named keyboard effect; set the color where relevant. Changes apply as you make them. **Static** is not firmware id `3` — see baseline doc. Optional: `MCHOSE_HIDRAW=/dev/hidrawN` if auto-detection picks the wrong interface.
 
 **Legacy Phase 1 notes (Tauri era):** [PHASE1_LIGHTING.md](docs/protocol/PHASE1_LIGHTING.md) — prefer **baseline** docs above for current behavior.
 
@@ -267,4 +265,4 @@ same terms.
 
 ## Development
 
-Rust + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer); GTK/libadwaita dev packages per your distro.
+Rust + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer); `libudev` development files and `pkg-config` (see `.github/workflows/ci.yml`).

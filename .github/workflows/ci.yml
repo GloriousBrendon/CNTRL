@@ -14,7 +14,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # hidapi needs libudev; the GTK launcher (cntrl-gtk) is not built here.
+      # hidapi needs libudev.
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
       - run: cargo test -p cntrl-core
       - run: cargo test -p cntrl-core --release canvas_effects
