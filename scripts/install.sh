@@ -3,6 +3,7 @@
 #
 # Usage:
 #   ./scripts/install.sh              # build + install binary + udev + desktop
+#                                     # (a release archive ships the binary: no build)
 #   INSTALL_SYSTEMD=1 ./scripts/install.sh  # also install the daemon, boot/login restore + resume hook
 #   INSTALL_IT87=1 ./scripts/install.sh     # also load the it87 fan driver at boot (experimental)
 #   PREFIX=/usr ./scripts/install.sh  # install to /usr/bin instead
@@ -15,11 +16,17 @@ BINDIR="${PREFIX}/bin"
 INSTALL_SYSTEMD="${INSTALL_SYSTEMD:-0}"
 INSTALL_IT87="${INSTALL_IT87:-0}"
 
-echo "==> Building release..."
-cargo build --release --manifest-path "$ROOT/Cargo.toml" -p cntrl-cli
+# A release archive has the binary next to scripts/; a checkout builds it.
+if [[ -x "$ROOT/cntrl" ]]; then
+    BIN="$ROOT/cntrl"
+else
+    echo "==> Building release..."
+    cargo build --release --manifest-path "$ROOT/Cargo.toml" -p cntrl-cli
+    BIN="$ROOT/target/release/cntrl"
+fi
 
 echo "==> Installing binary: $BINDIR/cntrl"
-sudo install -Dm755 "$ROOT/target/release/cntrl" "$BINDIR/cntrl"
+sudo install -Dm755 "$BIN" "$BINDIR/cntrl"
 
 # An older copy earlier on PATH would keep running old code from your shell
 # while the services run the new one. Point it at the installed binary.

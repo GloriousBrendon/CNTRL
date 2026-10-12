@@ -1,0 +1,38 @@
+name: Release
+
+# Pushing a tag like v0.7.0 builds the binary and attaches it to a GitHub
+# release, together with the udev rules, units and the install script.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+      - run: cargo test --workspace
+      - run: cargo build --release -p cntrl-cli
+      - name: Package
+        run: |
+          name="cntrl-${GITHUB_REF_NAME}-x86_64-linux"
+          mkdir "$name"
+          cp target/release/cntrl "$name/"
+          strip "$name/cntrl"
+          cp -r packaging scripts README.md CHANGELOG.md LICENSE-MIT LICENSE-APACHE "$name/"
+          tar czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cntrl-*.tar.gz
+            cntrl-*.tar.gz.sha256
+          # 0.x releases are previews: the app is still being tested on more hardware.
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
+          generate_release_notes: true

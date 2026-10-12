@@ -1,6 +1,6 @@
 [package]
 name = "cntrl-cli"
-version = "0.1.0"
+version = "0.7.0"
 edition = "2021"
 description = "CNTRL unified CLI: daemon, panel, devices, theme sync"
 license = "MIT OR Apache-2.0"

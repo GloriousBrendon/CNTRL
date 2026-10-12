@@ -81,7 +81,7 @@ pub struct FanChannel {
 }
 
 /// A pump header never runs slower than this, whatever the mode or its floor.
-pub const PUMP_MIN_DUTY_PCT: u8 = 60;
+pub const PUMP_MIN_DUTY_PCT: u8 = 50;
 
 impl FanChannel {
     /// A liquid-cooling pump header (`SYS_FAN4_PUMP`), going by the board's

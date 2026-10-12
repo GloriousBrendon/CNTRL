@@ -5,6 +5,10 @@ motherboard's ARGB headers, GPU and RAM lit as one canvas, and temperature-drive
 fan curves. No OpenRGB, no vendor software, no browser engine — CNTRL talks to
 the hardware directly over `hidraw`, `i2c` and `hwmon`.
 
+> **Status: 0.7, a preview.** It works day to day on the hardware listed below and has not been
+> tried on anything else yet. Reports from other machines, working or not, are very welcome:
+> please open an issue with the output of `cntrl devices` and `cntrl fans list`.
+
 ## Supported hardware
 
 CNTRL only shows and drives what it detects. This is what it knows today:
@@ -30,14 +34,19 @@ cntrl devices                             # what was detected, and why anything 
 cntrl panel                               # the app
 ```
 
-Needs a Rust toolchain and `libudev`. `INSTALL_SYSTEMD=1` also sets up the
+Or, without building: download the archive from the latest
+[release](https://github.com/GloriousBrendon/CNTRL/releases), unpack it, and run the same
+`./scripts/install.sh` from inside it.
+
+Building needs a Rust toolchain and `libudev`. `INSTALL_SYSTEMD=1` also sets up the
 background daemon (theme sync, fan engine, canvas stream) and the units that
 restore lighting at login and after suspend. Add `INSTALL_IT87=1` for
 motherboard fan headers.
 
 > **Fans are safety-relevant.** CNTRL hands every fan back to firmware control
 > when it stops, is disabled, or loses the temperature sensor a curve depends
-> on — but a `kill -9` cannot be caught. `cntrl fans restore` recovers from that.
+> on. A watchdog process does the same if CNTRL crashes or is killed. If you ever
+> suspect a fan is stuck, `cntrl fans restore` puts them all back by hand.
 
 The repo is a **Cargo workspace**: `cntrl-core`, `cntrl-cli` (unified **`cntrl`** binary: daemon / panel / devices / apply-theme), and `cntrl-iced` (the UI — full desktop panel). iced is the only frontend; the earlier GTK app was retired (see ADR 0001). Build and run from the repository root.
 
@@ -104,9 +113,10 @@ Detection covers the common case. These environment variables override it for ot
 The **Fans** tab is a native equivalent of Windows' *Fan Control*: it reads temperature sensors from `/sys/class/hwmon` and drives fan PWM channels with custom curves. No external tools — plain sysfs, same "native-only" philosophy as the lighting.
 
 - **What's controllable:** anything hwmon exposes as `pwmN` + `pwmN_enable`. The **GPU fan** (`amdgpu`) works out of the box on cards up to the RX 6000 series (RX 7000 and newer keep their own fan curve and ignore `pwm1`; not supported yet); motherboard headers need the `it87` driver (below). Every temperature the kernel exposes (CPU `k10temp`, GPU, NVMe, board `gigabyte_wmi`, DIMM `spd5118`, …) is available as a **curve input**, even for sensors with no controllable fan.
+- **Modes:** Silent, Balanced and Performance are ready-made curves for every fan; Custom uses your own curve per fan. A header the board names as a pump header keeps its own curve and never runs below 50% unless you allow it (a case fan is often plugged in there).
 - **Curves:** drag points on the graph (temp on X, duty% on Y), click empty space to add a point, right-click to delete. Linear interpolation with clamped ends, exactly like Fan Control. Each channel also has a **min/max duty** envelope. Temps are EMA-smoothed (the "Response Time" knob) and a small change threshold prevents fan hunting.
-- **The engine:** enable it with the **Enable engine** toggle (or `enabled: true` in `~/.config/cntrl/fan_curves.json`). It runs inside `cntrl daemon`, or standalone in the foreground via `cntrl fans run`. The GUI only edits the JSON; the engine picks up changes on its next tick — the same relationship the theme watcher has with `settings.json`.
-- **Safety:** before the engine first drives a fan it records the fan's original mode. It hands the fan back to firmware control on Ctrl-C, SIGTERM or a panic, when you untick **Enable engine**, when you remove the fan's curve, and when the sensor its curve reads disappears (it takes the fan back when the sensor returns). Only one engine can run at a time. `SIGKILL` (`kill -9`) can't be trapped — if that happens, `cntrl fans restore` puts the fans back.
+- **The engine:** enable it with **Let CNTRL control fans** (or `enabled: true` in `~/.config/cntrl/fan_curves.json`). It runs inside `cntrl daemon`, or standalone in the foreground via `cntrl fans run`. The GUI only edits the JSON; the engine picks up changes on its next tick — the same relationship the theme watcher has with `settings.json`.
+- **Safety:** before the engine first drives a fan it records the fan's original mode. It hands the fan back to firmware control on Ctrl-C, SIGTERM or a panic, when you switch **Let CNTRL control fans** off, when you give a fan back to the BIOS, and when the sensor its curve reads disappears (it takes the fan back when the sensor returns). Only one engine can run at a time. `SIGKILL` (`kill -9`) and crashes can't be trapped by the engine itself, so a small watchdog process waits for the engine to disappear and then restores the fans; `cntrl fans restore` does the same by hand.
 
 ### First-time setup (permissions)
 
@@ -166,39 +176,6 @@ CNTRL follows a pywal-style `~/.config/themes/colors.conf`; its `accent` key dri
   ```
 
 - **Automatic (daemon watcher):** enable **Match my desktop theme** in Settings (or set `theme_sync_enabled` in `~/.config/cntrl/settings.json`). While `cntrl daemon` runs, it watches `colors.conf` and re-applies on every change. The existing effect is preserved — presets keep animating, just recolored.
-
-## Migration baseline (GTK → ICED, historical)
-
-The migration is finished and the GTK app is gone. These record how it was done:
-
-| Artifact | Path |
-|----------|------|
-| Behavior & mappings | [docs/baseline/BASELINE_BEHAVIOR.md](docs/baseline/BASELINE_BEHAVIOR.md) |
-| Manual smoke checklist | [docs/baseline/SMOKE_LIGHTING_CHECKLIST.md](docs/baseline/SMOKE_LIGHTING_CHECKLIST.md) |
-| ADR (strategy) | [docs/adr/0001-migrate-to-iced-daemon-and-theming.md](docs/adr/0001-migrate-to-iced-daemon-and-theming.md) |
-| Build smoke script | `./scripts/smoke_lighting.sh` |
-
-## Phase 1 — lighting (Linux + native app)
-
-**In scope:** static / custom / off, firmware presets via **named** mapping (`lighting_modes::PRESET_MODES`), clear errors when hidraw fails.  
-**Out of scope:** key remaps, macros, RT/polling/actuation upload, reading real device state, per-key matrix upload, GIF/timeline upload.
-
-1. **udev:** copy `packaging/udev/99-mchose-ace68.rules` to `/etc/udev/rules.d/`, reload rules, replug the keyboard.
-2. **Run the app:**
-
-   ```bash
-   cargo run -p cntrl-cli -- panel
-   ```
-
-3. **Lighting**: choose **Static**, **Custom**, **Off**, or a named keyboard effect; set the color where relevant. Changes apply as you make them. **Static** is not firmware id `3` — see baseline doc. Optional: `MCHOSE_HIDRAW=/dev/hidrawN` if auto-detection picks the wrong interface.
-
-**Legacy Phase 1 notes (Tauri era):** [PHASE1_LIGHTING.md](docs/protocol/PHASE1_LIGHTING.md) — prefer **baseline** docs above for current behavior.
-
-## Scripts
-
-| Command | Purpose |
-|---------|---------|
-| `./scripts/smoke_lighting.sh` | `cargo build` + pointers to manual checklist |
 
 ## Arch boot-time RGB probe (optional)
 

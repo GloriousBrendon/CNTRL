@@ -719,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn pump_keeps_its_own_curve_and_a_60_percent_floor() {
+    fn pump_keeps_its_own_curve_and_a_floor() {
         let root = fake_hwmon("pump");
         let label = [("fakechip".to_string(), "pwm1".to_string(), "SYS_FAN4_PUMP".to_string())];
         let d = crate::fan_control::discover_in(&root, &label);
@@ -729,7 +729,9 @@ mod tests {
         let mut cfg = fake_cfg();
         cfg.mode = FanMode::Silent;
         tick(&cfg, &d, &mut TickState::default(), false);
-        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(60).to_string());
+        let floor = crate::fan_control::PUMP_MIN_DUTY_PCT;
+        assert_eq!(floor, 50);
+        assert_eq!(read(&root, "pwm1"), crate::fan_control::pct_to_raw(floor).to_string());
 
         // Above the floor the pump follows its own curve, not the preset.
         if let CurveKind::Graph { points, .. } = &mut cfg.curves[0].kind {

@@ -4482,22 +4482,38 @@ fn fan_card(app: &App) -> Element<'_, Message> {
         .align_x(Alignment::End);
         body = body.push(row![field("Or this one, if it is hotter", also.into()), release].spacing(16));
     }
-    // Reachable in Custom, and wherever it is already on (to switch it off).
-    if cfg.mode == FanMode::Custom || pump {
+    // A header the board calls a pump header is protected by default, with a
+    // switch to lift that (a case fan is often plugged in there). Any other
+    // header can be marked as a pump in Custom.
+    let floor = cntrl_core::fan_control::PUMP_MIN_DUTY_PCT;
+    let pump_switch = if ch.is_pump() {
+        Some((
+            format!("Allow this pump header to go below {floor}%"),
+            "Switch on if a fan, not a pump, is plugged in here. It then follows the modes \
+             like any other fan."
+                .to_string(),
+            !pump,
+        ))
+    } else if cfg.mode == FanMode::Custom || pump {
+        Some((
+            "This is a pump".to_string(),
+            format!("Never below {floor}%, and it keeps this curve whatever mode is chosen."),
+            pump,
+        ))
+    } else {
+        None
+    };
+    if let Some((label, desc, on)) = pump_switch {
         body = body.push(
             row![
                 column![
-                    text("This is a pump").size(14).font(tokens::UI_MEDIUM),
-                    text(format!(
-                        "Never below {}%, and it keeps this curve whatever mode is chosen.",
-                        cntrl_core::fan_control::PUMP_MIN_DUTY_PCT
-                    ))
-                    .size(13)
-                    .color(tokens::TEXT_SECONDARY),
+                    text(label).size(14).font(tokens::UI_MEDIUM),
+                    text(desc).size(13).color(tokens::TEXT_SECONDARY),
                 ]
                 .spacing(2)
                 .width(Length::Fill),
-                switch(pump, app.accent(), Some(Message::FanSetPump(ch.id.clone(), !pump))),
+                // Either way the switch flips whether the fan counts as a pump.
+                switch(on, app.accent(), Some(Message::FanSetPump(ch.id.clone(), !pump))),
             ]
             .spacing(20)
             .align_y(Alignment::Center),

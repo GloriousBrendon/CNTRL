@@ -14,9 +14,11 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # hidapi needs libudev.
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
-      - run: cargo test -p cntrl-core
+      # hidapi needs libudev; the panel's windowing libraries are loaded at
+      # run time, their headers are here in case a dependency wants them.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config libwayland-dev libxkbcommon-dev
+      - run: cargo test --workspace
+      # The effect renderers are only fast enough when optimised.
       - run: cargo test -p cntrl-core --release canvas_effects
-      - run: cargo clippy -p cntrl-core
-      - run: cargo build -p cntrl-cli
+      - run: cargo clippy --workspace
+      - run: cargo build --release -p cntrl-cli
