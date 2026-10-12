@@ -532,7 +532,8 @@ fn run_fans_list() -> Result<(), String> {
             .map(|raw| format!("{}%", fan_control::raw_to_pct(raw)))
             .unwrap_or_else(|_| "—".to_string());
         let exp = if c.experimental { "  [experimental]" } else { "" };
-        println!("  {mark} {id}  [{chip}]  {rpm}  duty={duty}{exp}", id = c.id, chip = c.chip);
+        let name = if c.label.is_empty() { &c.chip } else { &c.label };
+        println!("  {mark} {id}  [{name}]  {rpm}  duty={duty}{exp}", id = c.id);
         println!("      status={}", c.status.label());
         println!("      {}", c.detail);
     }

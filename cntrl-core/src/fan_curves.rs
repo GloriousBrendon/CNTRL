@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn tick_writes_duty_and_engages_manual() {
         let root = fake_hwmon("write");
-        let d = crate::fan_control::discover_in(&root);
+        let d = crate::fan_control::discover_in(&root, &[]);
         let mut state = TickState::default();
         let summary = tick(&fake_cfg(), &d, &mut state, false);
         assert_eq!(summary.reports[0].result, ApplyResult::Written);
@@ -725,7 +725,7 @@ mod tests {
     fn steady_temperature_skips_unless_fan_was_changed_behind_us() {
         let root = fake_hwmon("skip");
         let cfg = fake_cfg();
-        let d = crate::fan_control::discover_in(&root);
+        let d = crate::fan_control::discover_in(&root, &[]);
         let mut state = TickState::default();
         tick(&cfg, &d, &mut state, false);
         assert_eq!(tick(&cfg, &d, &mut state, false).reports[0].result, ApplyResult::Skipped);
@@ -747,19 +747,19 @@ mod tests {
         let root = fake_hwmon("sensor");
         let cfg = fake_cfg();
         let mut state = TickState::default();
-        tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        tick(&cfg, &crate::fan_control::discover_in(&root, &[]), &mut state, false);
         assert_eq!(read(&root, "pwm1_enable"), "1");
 
         // Sensor vanishes (driver reload): firmware takes the fan back.
         std::fs::remove_file(root.join("hwmon0/temp1_input")).unwrap();
-        let summary = tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        let summary = tick(&cfg, &crate::fan_control::discover_in(&root, &[]), &mut state, false);
         assert_eq!(summary.reports[0].result, ApplyResult::HandedBack);
         assert_eq!(read(&root, "pwm1_enable"), "2");
 
         // Sensor returns at the same temperature: the engine must re-engage
         // even though the target equals the last duty it wrote.
         std::fs::write(root.join("hwmon0/temp1_input"), "40000\n").unwrap();
-        let summary = tick(&cfg, &crate::fan_control::discover_in(&root), &mut state, false);
+        let summary = tick(&cfg, &crate::fan_control::discover_in(&root, &[]), &mut state, false);
         assert_eq!(summary.reports[0].result, ApplyResult::Written);
         assert_eq!(read(&root, "pwm1_enable"), "1");
         let _ = std::fs::remove_dir_all(root);
@@ -769,7 +769,7 @@ mod tests {
     fn restore_puts_removed_assignment_back_in_firmware_mode() {
         let root = fake_hwmon("restore");
         let cfg = fake_cfg();
-        let d = crate::fan_control::discover_in(&root);
+        let d = crate::fan_control::discover_in(&root, &[]);
         let mut states = OriginalStates::new();
         assert!(capture_into(&mut states, &cfg, &d).unwrap());
         // Capturing alone must not touch the fan.

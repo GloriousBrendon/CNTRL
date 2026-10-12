@@ -2504,7 +2504,13 @@ fn fans_view(app: &App) -> Element<'_, Message> {
             .map(|raw| format!("{}%", cntrl_core::fan_control::raw_to_pct(*raw)))
             .unwrap_or_else(|| "—".to_string());
         let assigned = app.assignment_for(&ch.id).is_some();
-        let mut title = row![text(ch.id.clone()).size(14)].spacing(8).align_y(Alignment::Center);
+        // Board name first when a sensors config knows it ("CPU_FAN").
+        let name = if ch.label.is_empty() {
+            ch.id.clone()
+        } else {
+            format!("{}  ({})", ch.label, ch.id)
+        };
+        let mut title = row![text(name).size(14)].spacing(8).align_y(Alignment::Center);
         if ch.experimental {
             title = title.push(badge("EXPERIMENTAL", Color::from_rgb8(0xe0, 0x9c, 0x4c)));
         }
@@ -2577,7 +2583,20 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let sensor_ids: Vec<String> = app.fan_discovery.sensors.iter().map(|s| s.id.clone()).collect();
+    // Every temperature the machine has, by name, with its live reading —
+    // the list a curve's source is picked from.
+    let sensor_choices: Vec<SensorChoice> = app
+        .fan_discovery
+        .sensors
+        .iter()
+        .map(|s| SensorChoice {
+            id: s.id.clone(),
+            text: match app.fan_readings.temps_c.get(&s.id) {
+                Some(t) => format!("{} — {}  ·  {t:.0}°C", s.label, s.id),
+                None => format!("{} — {}", s.label, s.id),
+            },
+        })
+        .collect();
 
     let Some(assignment) = app.assignment_for(&sel) else {
         // No curve yet — offer to create one, defaulting the sensor sensibly.
@@ -2617,9 +2636,12 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
 
     let sensor_row = row![
         text("Sensor").size(12).color(muted(colors)),
-        pick_list(sensor_ids, Some(sensor_id.clone()), move |sid| {
-            Message::FanSetSensor(curve_id.clone(), sid)
-        })
+        pick_list(
+            sensor_choices.clone(),
+            sensor_choices.iter().find(|c| c.id == sensor_id).cloned(),
+            move |choice| Message::FanSetSensor(curve_id.clone(), choice.id),
+        )
+        .placeholder("sensor not found — pick one")
         .text_size(13),
         Space::new().width(Length::Fill),
         text(
@@ -2693,6 +2715,19 @@ fn fan_editor_pane(app: &App) -> Element<'_, Message> {
 }
 
 /// Pick a sensible default sensor for a channel: prefer one on the same chip.
+/// One entry of the temperature-source list: shown by name, stored by id.
+#[derive(Debug, Clone, PartialEq)]
+struct SensorChoice {
+    id: String,
+    text: String,
+}
+
+impl std::fmt::Display for SensorChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
 /// Sensor a new curve starts on. A GPU fan follows its own chip. Anything else
 /// (CPU cooler, case fans) follows the CPU: a board chip's first sensor is
 /// usually a slow "system" temperature, and a CPU fan tied to it would stay

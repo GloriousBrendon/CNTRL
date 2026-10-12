@@ -66,6 +66,9 @@ pub struct FanChannel {
     /// Stable id, e.g. `amdgpu/pwm1`.
     pub id: String,
     pub chip: String,
+    /// What the header is called on the board (`CPU_FAN`, `SYS_FAN1`), from
+    /// an lm-sensors config; empty when none names it.
+    pub label: String,
     pub pwm_file: PathBuf,
     pub enable_file: Option<PathBuf>,
     /// `fanN_input` (RPM tach) if a matching one exists.
@@ -219,11 +222,99 @@ const HWMON_ROOT: &str = "/sys/class/hwmon";
 /// Enumerate every temperature sensor and fan PWM channel on this machine.
 /// Pure read-only: openability is checked by opening+dropping, never writing.
 pub fn discover() -> FanDiscovery {
-    discover_in(Path::new(HWMON_ROOT))
+    discover_in(Path::new(HWMON_ROOT), &sensors_conf_labels())
+}
+
+/// One `label` statement from an lm-sensors config: (chip prefix, `temp3`, `CPU`).
+pub type ConfLabel = (String, String, String);
+
+/// Names for sensors and fan headers. The kernel only numbers them (`temp3`,
+/// `pwm1`); what each is wired to is board knowledge, and lm-sensors configs
+/// are where Linux keeps it. Later files override earlier ones.
+fn sensors_conf_labels() -> Vec<ConfLabel> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    // The out-of-tree it87 driver ships labels for Gigabyte boards; use them
+    // even if the user never ran its installer.
+    if let Ok(src) = fs::read_dir("/usr/src") {
+        for dir in src.filter_map(|e| e.ok()).map(|e| e.path()) {
+            if dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with("it87-")) {
+                // Intel and AMD boards reuse chip ids with different wiring;
+                // only this machine's vendor file applies.
+                let amd = fs::read_to_string("/proc/cpuinfo").is_ok_and(|c| c.contains("AuthenticAMD"));
+                let vendor = if amd { "-amd" } else { "-intel" };
+                files.extend(
+                    conf_files(&dir.join("Sensors configs/Gigabyte/configs"))
+                        .into_iter()
+                        .filter(|f| f.to_string_lossy().contains(vendor)),
+                );
+            }
+        }
+    }
+    files.push(PathBuf::from("/etc/sensors3.conf"));
+    files.extend(conf_files(Path::new("/etc/sensors.d")));
+    files
+        .iter()
+        .filter_map(|f| fs::read_to_string(f).ok())
+        .flat_map(|text| parse_sensors_conf(&text))
+        .collect()
+}
+
+fn conf_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    out.sort();
+    out
+}
+
+/// Pull the `chip "…"` / `label key "text"` statements out of an lm-sensors
+/// config. Everything else in the format (compute, ignore, set) is skipped.
+fn parse_sensors_conf(text: &str) -> Vec<ConfLabel> {
+    let mut out = Vec::new();
+    let mut chips: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        let quoted: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
+        let mut words = line.split_whitespace();
+        match words.next() {
+            // `chip "it8689_90060606-*" "it8686-*"`: the part before the bus.
+            Some("chip") => {
+                chips = quoted
+                    .iter()
+                    .filter_map(|p| p.split('-').next())
+                    .map(str::to_string)
+                    .collect();
+            }
+            Some("label") => {
+                if let (Some(key), Some(label)) = (words.next(), quoted.first()) {
+                    for chip in &chips {
+                        out.push((chip.clone(), key.to_string(), label.to_string()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The label a config gives `key` on `chip`. An exact chip name beats a
+/// wildcard (`it87*`); among equals the last one read wins.
+fn conf_label(labels: &[ConfLabel], chip: &str, key: &str) -> Option<String> {
+    let matching = |exact: bool| {
+        labels.iter().rev().find(|(pattern, k, _)| {
+            k == key
+                && match pattern.strip_suffix('*') {
+                    Some(prefix) => !exact && !prefix.is_empty() && chip.starts_with(prefix),
+                    None => exact && pattern == chip,
+                }
+        })
+    };
+    matching(true).or_else(|| matching(false)).map(|(_, _, label)| label.clone())
 }
 
 /// `discover` over an arbitrary hwmon root (tests point this at a fake tree).
-pub fn discover_in(root: &Path) -> FanDiscovery {
+pub fn discover_in(root: &Path, labels: &[ConfLabel]) -> FanDiscovery {
     let mut sensors = Vec::new();
     let mut channels = Vec::new();
 
@@ -259,7 +350,9 @@ pub fn discover_in(root: &Path) -> FanDiscovery {
         for n in sysfs_indices(&dir, "temp", "_input") {
             let input = dir.join(format!("temp{n}_input"));
             let label = read_sysfs_string(&dir.join(format!("temp{n}_label")))
-                .unwrap_or_else(|_| format!("temp{n}"));
+                .ok()
+                .or_else(|| conf_label(labels, &chip, &format!("temp{n}")))
+                .unwrap_or_else(|| format!("temp{n}"));
             sensors.push(TempSensor {
                 id: format!("{chip_key}/temp{n}"),
                 chip: chip.clone(),
@@ -280,6 +373,9 @@ pub fn discover_in(root: &Path) -> FanDiscovery {
             channels.push(FanChannel {
                 id: format!("{chip_key}/pwm{n}"),
                 chip: chip.clone(),
+                label: conf_label(labels, &chip, &format!("pwm{n}"))
+                    .or_else(|| conf_label(labels, &chip, &format!("fan{n}")))
+                    .unwrap_or_default(),
                 pwm_file,
                 enable_file,
                 tach_file,
@@ -602,5 +698,35 @@ fn judge_spike(
                 rel_change * 100.0
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sensors_conf_labels_name_sensors_and_headers() {
+        let conf = r#"
+# SIV 0x90060606
+chip "it8689_90060606-*" "it8686_1-*"
+    label in0     "CPU Vcore"
+    compute in1   @ * 1.649, @ / 1.649
+    label temp3   "CPU"            # trailing comment
+    label pwm1    "CPU_FAN"
+    ignore in6
+chip "it87*-*"
+    label temp3   "generic"
+    label temp1   "System"
+"#;
+        let labels = parse_sensors_conf(conf);
+        // The exact chip wins over the wildcard, whatever the order.
+        assert_eq!(conf_label(&labels, "it8689_90060606", "temp3").as_deref(), Some("CPU"));
+        assert_eq!(conf_label(&labels, "it8686_1", "pwm1").as_deref(), Some("CPU_FAN"));
+        // Only the wildcard names temp1; it applies to chips it matches.
+        assert_eq!(conf_label(&labels, "it8792", "temp1").as_deref(), Some("System"));
+        assert_eq!(conf_label(&labels, "it8792", "temp3").as_deref(), Some("generic"));
+        assert_eq!(conf_label(&labels, "it8689_90060606", "temp1"), None);
+        assert_eq!(conf_label(&labels, "nct6798", "temp3"), None);
     }
 }
